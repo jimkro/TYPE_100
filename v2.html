@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Typing Survival Game</title>
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+        canvas {
+            background: #2a2a2a;
+            box-shadow: 0 0 30px rgba(0,0,0,0.7);
+            border: 3px solid #444;
+            border-radius: 4px;
+        }
+        #ui {
+            margin-bottom: 10px;
+            text-align: center;
+            pointer-events: none; /* 讓點擊穿透到 canvas */
+        }
+        .highlight { color: #FFD700; font-weight: bold;}
+        .cmd { color: #00d2ff; font-weight: bold;}
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <h2>2D 打字生存戰</h2>
+    <p>移動指令: <span class="cmd">up, down, left, right</span></p>
+    <p>攻擊方式: 輸入怪物頭上的 <span class="highlight">單字</span> 來消滅它</p>
+    <p>分數: <span id="scoreDisplay">0</span></p>
+</div>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+
+    let score = 0;
+    let currentInput = ""; // 玩家目前打的字
+    
+    // --- 1. 玩家設定 ---
+    const player = {
+        x: canvas.width / 2 - 15,
+        y: canvas.height / 2 - 15,
+        size: 30,
+        color: '#00d2ff',
+        speed: 60
+    };
+
+    // --- 2. 怪物設定 ---
+    let enemies = [];
+    let spawnTimer = 0;
+    const SPAWN_RATE = 100; // 數字越小生成越快
+    // 怪物單字庫 (可以自行擴充)
+    const WORD_LIST = [
+        'bug', 'code', 'hack', 'lag', 'glitch', 
+        'error', 'fatal', 'null', 'void', 'crash',
+        'virus', 'worm', 'trojan', 'spyware', 'ddos',
+        'syntax', 'compile', 'runtime', 'stack', 'heap'
+    ];
+
+    // --- 3. 指令集 (僅保留移動) ---
+    // 注意：這裡移除了 attack 指令，因為攻擊現在是透過打怪物名字觸發
+    const MOVEMENT_COMMANDS = {
+        'up':    () => { player.y = Math.max(0, player.y - player.speed); },
+        'down':  () => { player.y = Math.min(canvas.height - player.size, player.y + player.speed); },
+        'left':  () => { player.x = Math.max(0, player.x - player.speed); },
+        'right': () => { player.x = Math.min(canvas.width - player.size, player.x + player.speed); }
+    };
+
+    // --- 4. 遊戲核心邏輯 ---
+
+    // 生成怪物
+    function spawnEnemy() {
+        const side = Math.floor(Math.random() * 4); // 0:上, 1:右, 2:下, 3:左
+        let x, y;
+        const size = 25;
+        switch(side) {
+            case 0: x = Math.random() * canvas.width; y = -size; break;
+            case 1: x = canvas.width; y = Math.random() * canvas.height; break;
+            case 2: x = Math.random() * canvas.width; y = canvas.height; break;
+            case 3: x = -size; y = Math.random() * canvas.height; break;
+        }
+        
+        // 隨機挑選一個目前場上沒有的單字 (避免重複目標)
+        let availableWords = WORD_LIST.filter(word => !enemies.some(e => e.word === word));
+        if (availableWords.length === 0) availableWords = WORD_LIST; // 如果都被用光了，就隨便挑
+        const randomWord = availableWords[Math.floor(Math.random() * availableWords.length)];
+
+        enemies.push({
+            x: x, y: y, size: size,
+            color: '#ff3333',
+            speed: 0.8 + Math.random() * 0.5, // 隨機速度
+            word: randomWord
+        });
+    }
+
+    // 鍵盤監聽
+    window.addEventListener('keydown', (e) => {
+        if (e.key.length > 1 && e.key !== 'Backspace') return;
+        if (e.key === 'Backspace') {
+            currentInput = currentInput.slice(0, -1);
+        } else if (/^[a-zA-Z]$/.test(e.key)) {
+            currentInput += e.key.toLowerCase();
+        }
+        checkInputMatch();
+    });
+
+    // **核心修改：輸入判定邏輯**
+    function checkInputMatch() {
+        // 優先檢查：是否為移動指令？
+        if (MOVEMENT_COMMANDS[currentInput]) {
+            MOVEMENT_COMMANDS[currentInput]();
+            createFloatingText("MOVE!", player.x, player.y - 20, '#00d2ff');
+            currentInput = ""; // 執行完移動就清空
+            return; // 既然是移動，就不用檢查是否為攻擊了
+        }
+
+        // 次要檢查：是否匹配場上任何怪物的單字？
+        // findIndex 會找到第一個符合條件的元素索引
+        const matchedEnemyIndex = enemies.findIndex(enemy => enemy.word === currentInput);
+
+        if (matchedEnemyIndex !== -1) {
+            // 擊中目標！
+            const deadEnemy = enemies[matchedEnemyIndex];
+            createFloatingText("KILLED: " + deadEnemy.word.toUpperCase(), deadEnemy.x, deadEnemy.y, '#FFD700');
+            
+            // 增加分數
+            score += deadEnemy.word.length * 10;
+            scoreDisplay.textContent = score;
+
+            // 移除怪物
+            enemies.splice(matchedEnemyIndex, 1);
+            
+            currentInput = ""; // 攻擊成功後清空
+        }
+    }
+
+    // 特效系統
+    let effects = [];
+    function createFloatingText(text, x, y, color = '#fff') {
+        effects.push({ text: text, x: x, y: y, life: 40, color: color });
+    }
+
+    // --- 5. 遊戲主迴圈 ---
+    function gameLoop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 繪製背景網格
+        ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 0.5;
+        for(let i=0; i<800; i+=50) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,600); ctx.stroke(); }
+        for(let i=0; i<600; i+=50) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(800,i); ctx.stroke(); }
+
+        // 更新並繪製怪物
+        spawnTimer++;
+        if (spawnTimer > SPAWN_RATE) {
+            spawnEnemy();
+            spawnTimer = 0;
+        }
+
+        enemies.forEach((enemy) => {
+            // 簡單的 AI：向玩家移動
+            const dx = player.x - enemy.x;
+            const dy = player.y - enemy.y;
+            const distance = Math.sqrt(dx*dx + dy*dy);
+            // 正規化向量並乘以速度
+            if(distance > 0) {
+                enemy.x += (dx / distance) * enemy.speed;
+                enemy.y += (dy / distance) * enemy.speed;
+            }
+
+            // 繪製怪物本體
+            ctx.fillStyle = enemy.color;
+            ctx.fillRect(enemy.x, enemy.y, enemy.size, enemy.size);
+
+            // **重要：繪製怪物頭上的單字**
+            ctx.fillStyle = '#FFD700'; // 金色字體比較顯眼
+            ctx.font = 'bold 16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(enemy.word, enemy.x + enemy.size/2, enemy.y - 8);
+            
+            // 繪製單字背景框 (讓字更清楚)
+            // ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            // const textWidth = ctx.measureText(enemy.word).width;
+            // ctx.fillRect(enemy.x + enemy.size/2 - textWidth/2 - 2, enemy.y - 22, textWidth + 4, 18);
+        });
+
+
+        // 繪製玩家
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+        // 玩家頭頂輸入顯示 (加上背景色凸顯)
+        ctx.fillStyle = 'rgba(0, 210, 255, 0.3)';
+        const inputWidth = ctx.measureText(currentInput).width || 10;
+        ctx.fillRect(player.x + player.size/2 - inputWidth/2 - 5, player.y - 30, inputWidth + 10, 25);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 20px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(currentInput, player.x + player.size/2, player.y - 10);
+
+
+        // 更新並繪製特效
+        effects.forEach((eff, index) => {
+            ctx.fillStyle = eff.color;
+            ctx.globalAlpha = eff.life / 40; // 漸漸消失
+            ctx.fillText(eff.text, eff.x, eff.y);
+            eff.y -= 0.5; 
+            eff.life--;
+            if(eff.life <= 0) effects.splice(index, 1);
+        });
+        ctx.globalAlpha = 1.0; // 重置透明度
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+
+</script>
+</body>
+</html>

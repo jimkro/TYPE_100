@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Typing Action Game</title>
+    <style>
+        body {
+            margin: 0;
+            background: #222;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+        canvas {
+            background: #333;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            border: 2px solid #555;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <h2>2D 創意打字戰鬥</h2>
+    <p>輸入: <span style="color:#0f0">up, down, left, right</span> 移動</p>
+    <p>輸入: <span style="color:#f00">attack</span> 攻擊</p>
+</div>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // 遊戲狀態
+    const player = {
+        x: 400,
+        y: 300,
+        size: 30,
+        color: '#00d2ff',
+        speed: 50, // 每次移動的距離
+        isAttacking: false,
+        attackTimer: 0
+    };
+
+    let currentInput = ""; // 玩家目前打的字
+    
+    // 定義指令集
+    const COMMANDS = {
+        'up':    () => { player.y -= player.speed; },
+        'down':  () => { player.y += player.speed; },
+        'left':  () => { player.x -= player.speed; },
+        'right': () => { player.x += player.speed; },
+        'attack': () => { 
+            player.isAttacking = true; 
+            player.attackTimer = 15; // 攻擊動畫持續幀數
+        }
+    };
+
+    // 監聽鍵盤輸入
+    window.addEventListener('keydown', (e) => {
+        // 忽略功能鍵 (Shift, Ctrl, etc.)
+        if (e.key.length > 1 && e.key !== 'Backspace') return;
+
+        if (e.key === 'Backspace') {
+            currentInput = currentInput.slice(0, -1);
+        } else {
+            // 只接受英文字母
+            if (/^[a-zA-Z]$/.test(e.key)) {
+                currentInput += e.key.toLowerCase();
+            }
+        }
+
+        checkCommand();
+    });
+
+    // 核心邏輯：檢查輸入是否匹配指令
+    function checkCommand() {
+        // 檢查 currentInput 是否匹配任何指令
+        if (COMMANDS[currentInput]) {
+            COMMANDS[currentInput](); // 執行指令
+            
+            // 創建一個浮動文字特效 (簡單實作)
+            createFloatingText(currentInput, player.x, player.y - 40);
+            
+            currentInput = ""; // 清空輸入緩衝區
+        }
+    }
+
+    // 視覺特效：浮動文字
+    let effects = [];
+    function createFloatingText(text, x, y) {
+        effects.push({ text: text.toUpperCase(), x: x, y: y, life: 30 });
+    }
+
+    // 遊戲主迴圈
+    function gameLoop() {
+        // 1. 清除畫面
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 2. 繪製地板網格 (裝飾用)
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1;
+        for(let i=0; i<800; i+=50) {
+            ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,600); ctx.stroke();
+        }
+        for(let i=0; i<600; i+=50) {
+            ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(800,i); ctx.stroke();
+        }
+
+        // 3. 繪製攻擊效果 (如果是攻擊狀態)
+        if (player.isAttacking) {
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.6)';
+            ctx.beginPath();
+            // 畫一個簡單的圓形範圍攻擊
+            ctx.arc(player.x + player.size/2, player.y + player.size/2, player.size * 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            player.attackTimer--;
+            if (player.attackTimer <= 0) player.isAttacking = false;
+        }
+
+        // 4. 繪製玩家
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+
+        // 5. 繪製頭頂輸入文字
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 20px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(currentInput, player.x + player.size/2, player.y - 10);
+
+        // 6. 繪製特效
+        effects.forEach((eff, index) => {
+            ctx.fillStyle = `rgba(255, 255, 0, ${eff.life / 30})`;
+            ctx.fillText(eff.text, eff.x, eff.y);
+            eff.y -= 1; // 向上飄
+            eff.life--;
+            if(eff.life <= 0) effects.splice(index, 1);
+        });
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // 啟動遊戲
+    gameLoop();
+
+</script>
+</body>
+</html>

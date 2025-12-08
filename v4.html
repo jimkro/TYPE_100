@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Typing Survival: v4 Balance</title>
+    <style>
+        body {
+            margin: 0;
+            background: #050505;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+        canvas {
+            background: #1a1a1a;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+            border: 2px solid #555;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            width: 100%;
+            text-shadow: 2px 2px 0 #000;
+        }
+        .highlight { color: #FFD700; font-weight: bold;}
+        .bomb-text { color: #FF4500; font-weight: bold;}
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <h2>打字生存: v4 平衡調整版</h2>
+    <p>移動: up, down, left, right | 攻擊: 輸入頭上單字</p>
+    <p>道具: 輸入 <span class="bomb-text">BOMB</span> 字串清除視野怪物</p>
+    <h3>分數: <span id="scoreDisplay">0</span> | 生命: <span id="hpDisplay">100</span>%</h3>
+</div>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+    /**
+     * ==========================================
+     * GAME VERSION: v4.0 (Balance Update)
+     * ==========================================
+     * * [關鍵邏輯變更 LOG]
+     * * 1. 生成速率調整 (Spawn Rate Nerf):
+     * - 降低了怪物生成的機率。
+     * - 邏輯：從原本每幀 3% 機率 (約每秒 1.8 隻) 降低至 0.8% 機率 (約每 2 秒 1 隻)，
+     * 避免玩家在遊戲初期就被怪海淹沒。
+     * * 2. 怪物移動速度降低 (Speed Nerf):
+     * - 大幅降低怪物的移動速度。
+     * - 邏輯：基礎速度區間從 [1.0 ~ 2.0] 像素/幀 降低至 [0.3 ~ 0.7] 像素/幀。
+     * 這給予玩家更多「思考與打字」的反應時間。
+     * * 3. 繼承 v3 功能:
+     * - 保留了 v3 的鏡頭系統、小地圖、炸彈道具與輸入優先級邏輯。
+     * * ==========================================
+     */
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    const hpDisplay = document.getElementById('hpDisplay');
+
+    // --- 1. 世界與鏡頭設定 ---
+    const WORLD_WIDTH = 2000;  
+    const WORLD_HEIGHT = 2000; 
+    
+    const camera = { x: 0, y: 0 };
+
+    // --- 2. 遊戲狀態 ---
+    let score = 0;
+    let currentInput = "";
+    let gameOver = false;
+    let flashScreen = 0;
+
+    const player = {
+        x: WORLD_WIDTH / 2,
+        y: WORLD_HEIGHT / 2,
+        size: 30,
+        hp: 100,
+        speed: 80,
+        color: '#00d2ff'
+    };
+
+    let enemies = [];
+    let items = []; 
+    let effects = []; 
+
+    const ENEMY_WORDS = ['bug', 'lag', '404', 'null', 'fail', 'deny', 'slow', 'halt', 'kill', 'die', 'dos', 'cmd'];
+    const BOMB_WORDS = ['boom', 'nuke', 'blast', 'clear', 'bomb'];
+
+    // --- 3. 核心邏輯 ---
+
+    function updateCamera() {
+        camera.x = player.x - canvas.width / 2;
+        camera.y = player.y - canvas.height / 2;
+        camera.x = Math.max(0, Math.min(camera.x, WORLD_WIDTH - canvas.width));
+        camera.y = Math.max(0, Math.min(camera.y, WORLD_HEIGHT - canvas.height));
+    }
+
+    function spawnEntity() {
+        // [v4 修改] 大幅降低生成機率 (0.03 -> 0.008)
+        if (Math.random() < 0.008) { 
+            let ex, ey, dist;
+            do {
+                ex = Math.random() * WORLD_WIDTH;
+                ey = Math.random() * WORLD_HEIGHT;
+                dist = Math.hypot(ex - player.x, ey - player.y);
+            } while (dist < 400); 
+
+            enemies.push({
+                x: ex, y: ey, size: 25,
+                word: ENEMY_WORDS[Math.floor(Math.random() * ENEMY_WORDS.length)],
+                // [v4 修改] 降低移動速度 (1.0~2.0 -> 0.3~0.7)
+                speed: 0.3 + Math.random() * 0.4,
+                color: '#ff3333'
+            });
+        }
+
+        // 道具生成機率維持不變 (還是需要一點運氣)
+        if (Math.random() < 0.005 && items.length < 3) {
+            items.push({
+                x: Math.random() * WORLD_WIDTH,
+                y: Math.random() * WORLD_HEIGHT,
+                size: 20,
+                type: 'bomb',
+                word: BOMB_WORDS[Math.floor(Math.random() * BOMB_WORDS.length)],
+                color: '#FFA500'
+            });
+        }
+    }
+
+    const MOVEMENT = {
+        'up':    () => player.y = Math.max(0, player.y - player.speed),
+        'down':  () => player.y = Math.min(WORLD_HEIGHT - player.size, player.y + player.speed),
+        'left':  () => player.x = Math.max(0, player.x - player.speed),
+        'right': () => player.x = Math.min(WORLD_WIDTH - player.size, player.x + player.speed)
+    };
+
+    window.addEventListener('keydown', (e) => {
+        if (gameOver) return;
+        if (e.key === 'Backspace') currentInput = currentInput.slice(0, -1);
+        else if (/^[a-zA-Z]$/.test(e.key)) currentInput += e.key.toLowerCase();
+        
+        checkInput();
+    });
+
+    function checkInput() {
+        if (MOVEMENT[currentInput]) {
+            MOVEMENT[currentInput]();
+            currentInput = "";
+            return;
+        }
+
+        const itemIndex = items.findIndex(i => i.word === currentInput);
+        if (itemIndex !== -1) {
+            useItem(items[itemIndex]);
+            items.splice(itemIndex, 1);
+            currentInput = "";
+            return;
+        }
+
+        const enemyIndex = enemies.findIndex(e => e.word === currentInput);
+        if (enemyIndex !== -1) {
+            const e = enemies[enemyIndex];
+            createEffect(e.word.toUpperCase(), e.x, e.y, '#ff0');
+            enemies.splice(enemyIndex, 1);
+            score += 10;
+            scoreDisplay.textContent = score;
+            currentInput = "";
+        }
+    }
+
+    function useItem(item) {
+        if (item.type === 'bomb') {
+            flashScreen = 10; 
+            createEffect("BOOM!", player.x, player.y - 50, '#fff', 30);
+            
+            enemies = enemies.filter(e => {
+                const onScreen = e.x > camera.x && e.x < camera.x + canvas.width &&
+                                 e.y > camera.y && e.y < camera.y + canvas.height;
+                if (onScreen) {
+                    createEffect("+KILL", e.x, e.y, '#f00');
+                    score += 5;
+                }
+                return !onScreen;
+            });
+            scoreDisplay.textContent = score;
+        }
+    }
+
+    function createEffect(text, x, y, color, size=20) {
+        effects.push({text, x, y, color, life: 40, size});
+    }
+
+    // --- 4. 繪圖輔助 ---
+    function drawMinimap() {
+        const mapSize = 150;
+        const margin = 20;
+        const mapX = canvas.width - mapSize - margin;
+        const mapY = margin;
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.fillRect(mapX, mapY, mapSize, mapSize);
+        ctx.strokeRect(mapX, mapY, mapSize, mapSize);
+
+        const scaleX = mapSize / WORLD_WIDTH;
+        const scaleY = mapSize / WORLD_HEIGHT;
+
+        ctx.fillStyle = '#FFA500';
+        items.forEach(i => {
+            ctx.beginPath();
+            ctx.arc(mapX + i.x * scaleX, mapY + i.y * scaleY, 3, 0, Math.PI*2);
+            ctx.fill();
+        });
+
+        ctx.fillStyle = '#ff3333';
+        enemies.forEach(e => {
+            ctx.fillRect(mapX + e.x * scaleX, mapY + e.y * scaleY, 2, 2);
+        });
+
+        ctx.fillStyle = '#00d2ff';
+        ctx.beginPath();
+        ctx.arc(mapX + player.x * scaleX, mapY + player.y * scaleY, 4, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(
+            mapX + camera.x * scaleX, 
+            mapY + camera.y * scaleY, 
+            canvas.width * scaleX, 
+            canvas.height * scaleY
+        );
+    }
+
+    // --- 5. 遊戲主迴圈 ---
+    function gameLoop() {
+        if (gameOver) {
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+            ctx.fillStyle = 'red';
+            ctx.font = '40px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText("GAME OVER", canvas.width/2, canvas.height/2);
+            return;
+        }
+
+        updateCamera();
+        spawnEntity();
+        
+        enemies.forEach(e => {
+            const dx = player.x - e.x;
+            const dy = player.y - e.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 0) {
+                e.x += (dx / dist) * e.speed;
+                e.y += (dy / dist) * e.speed;
+            }
+            if (dist < player.size) {
+                player.hp -= 0.5;
+                hpDisplay.textContent = Math.floor(player.hp);
+                if(player.hp <= 0) gameOver = true;
+            }
+        });
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        ctx.save();
+        ctx.translate(-camera.x, -camera.y);
+
+        ctx.strokeStyle = '#f00';
+        ctx.lineWidth = 5;
+        ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        for(let x=0; x<=WORLD_WIDTH; x+=100) {
+            if(x >= camera.x - 100 && x <= camera.x + canvas.width + 100) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_HEIGHT); ctx.stroke();
+            }
+        }
+        for(let y=0; y<=WORLD_HEIGHT; y+=100) {
+            if(y >= camera.y - 100 && y <= camera.y + canvas.height + 100) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_WIDTH, y); ctx.stroke();
+            }
+        }
+
+        items.forEach(i => {
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = i.color;
+            ctx.fillStyle = i.color;
+            ctx.fillRect(i.x, i.y, i.size, i.size);
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText("[" + i.word + "]", i.x + i.size/2, i.y - 5);
+        });
+
+        enemies.forEach(e => {
+            if(e.x < camera.x - 50 || e.x > camera.x + canvas.width + 50 ||
+               e.y < camera.y - 50 || e.y > camera.y + canvas.height + 50) return;
+
+            ctx.fillStyle = e.color;
+            ctx.fillRect(e.x, e.y, e.size, e.size);
+            
+            ctx.fillStyle = '#FFD700';
+            ctx.font = '16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(e.word, e.x + e.size/2, e.y - 5);
+        });
+
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+        
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(player.x - 20, player.y - 40, 70, 25);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 20px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(currentInput, player.x + player.size/2, player.y - 20);
+
+        effects.forEach((eff, i) => {
+            ctx.fillStyle = eff.color;
+            ctx.font = `bold ${eff.size}px Courier New`;
+            ctx.fillText(eff.text, eff.x, eff.y);
+            eff.y -= 1;
+            eff.life--;
+            if(eff.life <= 0) effects.splice(i, 1);
+        });
+
+        ctx.restore();
+
+        if (flashScreen > 0) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${flashScreen/10})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            flashScreen--;
+        }
+
+        drawMinimap();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Typing Survival: v5 Tactical</title>
+    <style>
+        body {
+            margin: 0;
+            background: #050505;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+        canvas {
+            background: #1a1a1a;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+            border: 2px solid #555;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            width: 100%;
+            text-shadow: 2px 2px 0 #000;
+        }
+        .hud-bar {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 5px;
+            font-size: 18px;
+        }
+        .ready { color: #0f0; }
+        .cooldown { color: #f00; }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <h2>打字生存: v5 戰術版</h2>
+    <p>機制: 輸入指令後按 <span style="border:1px solid #fff; padding:0 4px;">Enter</span> 發送</p>
+    <p>指令: <span style="color:#00d2ff">up, down, left, right</span> | <span style="color:#FFA500">bomb</span> | <span style="color:#f0f">gun, bow</span></p>
+    
+    <div class="hud-bar">
+        <span>武器: <span id="weaponDisplay" style="color:#f0f">GUN</span></span>
+        <span>炸彈: <span id="bombDisplay" class="ready">READY</span></span>
+    </div>
+    
+    <h3>分數: <span id="scoreDisplay">0</span> | 生命: <span id="hpDisplay">100</span>%</h3>
+</div>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+    /**
+     * ==========================================
+     * GAME VERSION: v5.0 (Tactical Update)
+     * ==========================================
+     * * [關鍵邏輯變更 LOG]
+     * * 1. Enter 確認機制 (Input Commit):
+     * - 取消即時觸發。現在必須按下 [Enter] 鍵才會執行輸入框內的指令。
+     * - 這改變了移動與攻擊的節奏，需要更精確的輸入。
+     * * 2. 唯一單字池 (Unique Word Pool):
+     * - 生成怪物時，會檢查目前場上已存在的單字，確保不會出現兩隻怪物頭上有一樣的字。
+     * * 3. 投射物系統 (Projectile System):
+     * - 攻擊不再是瞬間判定死亡。
+     * - 輸入怪物名字 -> 玩家發射子彈/箭矢 -> 飛行 -> 擊中才判定死亡。
+     * * 4. 武器切換與穿透 (Weapon Switching & Pierce):
+     * - 新增指令 'gun' (預設) 和 'bow' (新武器)。
+     * - 槍 (Gun): 子彈擊中目標後消失 (單體傷害)。
+     * - 弓 (Bow): 箭矢擊中目標後繼續飛行 (穿透)，可物理擊殺路徑上的其他怪物(無需打字)。
+     * * 5. 炸彈技能化 (Bomb Skill):
+     * - 炸彈不再是撿地上的道具，而是玩家內建的技能 (輸入 'bomb')。
+     * - 新增冷卻時間 (Cooldown) 機制，冷卻中無法使用。
+     * * ==========================================
+     */
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreDisplay = document.getElementById('scoreDisplay');
+    const hpDisplay = document.getElementById('hpDisplay');
+    const weaponDisplay = document.getElementById('weaponDisplay');
+    const bombDisplay = document.getElementById('bombDisplay');
+
+    // --- 1. 世界與鏡頭設定 ---
+    const WORLD_WIDTH = 2000;  
+    const WORLD_HEIGHT = 2000; 
+    const camera = { x: 0, y: 0 };
+
+    // --- 2. 遊戲狀態 ---
+    let score = 0;
+    let currentInput = "";
+    let gameOver = false;
+    let flashScreen = 0;
+
+    const player = {
+        x: WORLD_WIDTH / 2,
+        y: WORLD_HEIGHT / 2,
+        size: 30,
+        hp: 100,
+        speed: 100, // 因為要按Enter，移動距離稍微加長一點補償手感
+        color: '#00d2ff',
+        weapon: 'gun', // 'gun' or 'bow'
+        bombCD: 0,
+        maxBombCD: 300 // 60fps * 5秒 = 300
+    };
+
+    let enemies = [];
+    let projectiles = []; // 存放子彈與箭矢
+    let effects = []; 
+
+    // 單字庫擴充
+    const WORD_LIST = [
+        'int', 'float', 'char', 'void', 'bool', 'long', 'byte',
+        'if', 'else', 'for', 'while', 'do', 'switch', 'case',
+        'try', 'catch', 'throw', 'new', 'this', 'super', 'class',
+        'public', 'static', 'return', 'break', 'const', 'let', 'var',
+        'map', 'set', 'list', 'array', 'stack', 'queue', 'tree',
+        'sql', 'db', 'api', 'json', 'xml', 'html', 'css', 'js',
+        'git', 'push', 'pull', 'merge', 'commit', 'branch', 'log'
+    ];
+
+    // --- 3. 核心邏輯 ---
+
+    function updateCamera() {
+        camera.x = player.x - canvas.width / 2;
+        camera.y = player.y - canvas.height / 2;
+        camera.x = Math.max(0, Math.min(camera.x, WORLD_WIDTH - canvas.width));
+        camera.y = Math.max(0, Math.min(camera.y, WORLD_HEIGHT - canvas.height));
+    }
+
+    function spawnEntity() {
+        if (Math.random() < 0.01) { 
+            let ex, ey, dist;
+            do {
+                ex = Math.random() * WORLD_WIDTH;
+                ey = Math.random() * WORLD_HEIGHT;
+                dist = Math.hypot(ex - player.x, ey - player.y);
+            } while (dist < 400); 
+
+            // [v5 修改] 唯一性檢查
+            // 找出目前場上已經有的單字
+            const usedWords = enemies.map(e => e.word);
+            // 過濾出還沒被用的單字
+            const availableWords = WORD_LIST.filter(w => !usedWords.includes(w));
+            
+            // 如果單字用光了，就不生成，避免當機
+            if (availableWords.length > 0) {
+                const word = availableWords[Math.floor(Math.random() * availableWords.length)];
+                enemies.push({
+                    x: ex, y: ey, size: 25,
+                    word: word,
+                    speed: 0.5 + Math.random() * 0.5,
+                    color: '#ff3333'
+                });
+            }
+        }
+    }
+
+    // 移動指令
+    const COMMANDS = {
+        'up':    () => player.y = Math.max(0, player.y - player.speed),
+        'down':  () => player.y = Math.min(WORLD_HEIGHT - player.size, player.y + player.speed),
+        'left':  () => player.x = Math.max(0, player.x - player.speed),
+        'right': () => player.x = Math.min(WORLD_WIDTH - player.size, player.x + player.speed),
+        // [v5 新增] 武器切換
+        'gun':   () => { player.weapon = 'gun'; createEffect("EQUIP: GUN", player.x, player.y-40, '#f0f'); },
+        'bow':   () => { player.weapon = 'bow'; createEffect("EQUIP: BOW", player.x, player.y-40, '#f0f'); },
+        // [v5 新增] 炸彈技能
+        'bomb':  () => tryUseBomb()
+    };
+
+    // [v5 修改] 監聽器改為只處理字串緩衝，Enter才送出
+    window.addEventListener('keydown', (e) => {
+        if (gameOver) return;
+
+        if (e.key === 'Enter') {
+            processCommand();
+            currentInput = ""; // 送出後清空
+        } else if (e.key === 'Backspace') {
+            currentInput = currentInput.slice(0, -1);
+        } else if (/^[a-zA-Z]$/.test(e.key)) {
+            currentInput += e.key.toLowerCase();
+        }
+    });
+
+    function processCommand() {
+        // 1. 檢查指令 (移動、換武器、炸彈)
+        if (COMMANDS[currentInput]) {
+            COMMANDS[currentInput]();
+            return;
+        }
+
+        // 2. 檢查攻擊 (搜尋場上是否有該名字的怪物)
+        // 因為是唯一單字，只會找到一個或找不到
+        const targetEnemy = enemies.find(e => e.word === currentInput);
+        
+        if (targetEnemy) {
+            shootProjectile(targetEnemy);
+        } else {
+            // 打錯字或指令錯誤的懲罰 (可選：震動或音效，這裡先用視覺提示)
+            createEffect("?", player.x, player.y - 50, '#888', 15);
+        }
+    }
+
+    // [v5 新增] 射擊邏輯
+    function shootProjectile(target) {
+        // 計算發射角度
+        const dx = target.x - player.x;
+        const dy = target.y - player.y;
+        const dist = Math.hypot(dx, dy);
+        
+        // 正規化向量
+        const velX = (dx / dist) * 15; // 子彈速度
+        const velY = (dy / dist) * 15;
+
+        projectiles.push({
+            x: player.x + player.size/2,
+            y: player.y + player.size/2,
+            vx: velX,
+            vy: velY,
+            type: player.weapon, // 紀錄發射時的武器類型
+            targetId: target.word, // 鎖定目標 (用於 Gun 的判定)
+            life: 100 // 飛行壽命
+        });
+    }
+
+    // [v5 新增] 炸彈邏輯
+    function tryUseBomb() {
+        if (player.bombCD <= 0) {
+            flashScreen = 15;
+            createEffect("BOOM!", player.x, player.y - 60, '#FFA500', 40);
+            
+            // 清除視野內敵人
+            enemies = enemies.filter(e => {
+                const onScreen = e.x > camera.x && e.x < camera.x + canvas.width &&
+                                 e.y > camera.y && e.y < camera.y + canvas.height;
+                if (onScreen) score += 5;
+                return !onScreen;
+            });
+            scoreDisplay.textContent = score;
+            
+            // 設定冷卻
+            player.bombCD = player.maxBombCD;
+        } else {
+            createEffect("COOLDOWN!", player.x, player.y - 40, '#f00');
+        }
+    }
+
+    function createEffect(text, x, y, color, size=20) {
+        effects.push({text, x, y, color, life: 40, size});
+    }
+
+    // --- 4. 遊戲主迴圈 ---
+    function gameLoop() {
+        if (gameOver) { /* ...省略Game Over繪製... */
+            ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0,0,canvas.width, canvas.height);
+            ctx.fillStyle = 'red'; ctx.font = '40px Courier New'; ctx.textAlign = 'center';
+            ctx.fillText("GAME OVER", canvas.width/2, canvas.height/2);
+            return;
+        }
+
+        // 邏輯更新
+        updateCamera();
+        spawnEntity();
+        
+        // 更新炸彈冷卻
+        if (player.bombCD > 0) player.bombCD--;
+        
+        // 更新 UI 顯示
+        weaponDisplay.textContent = player.weapon.toUpperCase();
+        if(player.bombCD > 0) {
+            bombDisplay.textContent = Math.ceil(player.bombCD/60) + "s";
+            bombDisplay.className = "cooldown";
+        } else {
+            bombDisplay.textContent = "READY";
+            bombDisplay.className = "ready";
+        }
+
+        // 怪物移動
+        enemies.forEach(e => {
+            const dx = player.x - e.x;
+            const dy = player.y - e.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 0) { e.x += (dx/dist) * e.speed; e.y += (dy/dist) * e.speed; }
+            if (dist < player.size) { 
+                player.hp -= 0.5; 
+                hpDisplay.textContent = Math.floor(player.hp);
+                if(player.hp <= 0) gameOver = true;
+            }
+        });
+
+        // [v5 新增] 投射物更新
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+            let p = projectiles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life--;
+
+            // 移除超時子彈
+            if (p.life <= 0) { projectiles.splice(i, 1); continue; }
+
+            // 碰撞檢測
+            let hitIndex = -1;
+            
+            // 這裡為了簡化，讓子彈跟"所有"怪物做碰撞檢測
+            // 如果是 Gun，它會優先擊殺它的鎖定目標，如果撞到別的也會消失(擋子彈)
+            // 如果是 Bow，它會穿透
+            for (let j = 0; j < enemies.length; j++) {
+                let e = enemies[j];
+                let dist = Math.hypot(p.x - (e.x + e.size/2), p.y - (e.y + e.size/2));
+                
+                if (dist < e.size) { // 撞到了
+                    hitIndex = j;
+                    
+                    // 擊殺邏輯
+                    createEffect("HIT!", e.x, e.y, '#ff0');
+                    score += 10;
+                    scoreDisplay.textContent = score;
+                    enemies.splice(j, 1); // 移除怪物
+                    
+                    if (p.type === 'gun') {
+                        // 槍：擊中一個就消失
+                        projectiles.splice(i, 1); 
+                        break; // 退出怪物迴圈
+                    } 
+                    // 弓：繼續飛行，不移除 projectile，也不 break (可能一幀同時撞兩個)
+                }
+            }
+        }
+
+
+        // --- 繪圖 ---
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(-camera.x, -camera.y);
+
+        // 世界邊界 & 網格
+        ctx.strokeStyle = '#f00'; ctx.lineWidth = 5; ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+        // 簡單網格
+        for(let x=0; x<=WORLD_WIDTH; x+=200) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,WORLD_HEIGHT); ctx.stroke(); }
+        for(let y=0; y<=WORLD_HEIGHT; y+=200) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(WORLD_WIDTH,y); ctx.stroke(); }
+
+        // 繪製敵人
+        enemies.forEach(e => {
+            // 視野剔除
+            if(e.x < camera.x - 50 || e.x > camera.x + canvas.width + 50 || e.y < camera.y - 50) return;
+            
+            ctx.fillStyle = e.color;
+            ctx.fillRect(e.x, e.y, e.size, e.size);
+            ctx.fillStyle = '#FFD700';
+            ctx.font = '16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(e.word, e.x + e.size/2, e.y - 5);
+        });
+
+        // [v5 新增] 繪製投射物
+        projectiles.forEach(p => {
+            ctx.beginPath();
+            if (p.type === 'gun') {
+                ctx.fillStyle = '#ffff00';
+                ctx.arc(p.x, p.y, 5, 0, Math.PI*2);
+                ctx.fill();
+            } else {
+                // 弓箭畫成一條線
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 3;
+                ctx.moveTo(p.x, p.y);
+                ctx.lineTo(p.x - p.vx*2, p.y - p.vy*2); // 畫出拖尾
+                ctx.stroke();
+            }
+        });
+
+        // 繪製玩家
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+        // 玩家輸入框 (狀態提示：未按Enter前是灰色，按了之後清空)
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.fillRect(player.x - 40, player.y - 45, 110, 30);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 20px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(currentInput + (Math.floor(Date.now()/500)%2==0?"_":""), player.x + player.size/2, player.y - 20);
+
+        // 特效
+        effects.forEach((eff, i) => {
+            ctx.fillStyle = eff.color;
+            ctx.font = `bold ${eff.size}px Courier New`;
+            ctx.fillText(eff.text, eff.x, eff.y);
+            eff.y -= 1; eff.life--;
+            if(eff.life <= 0) effects.splice(i, 1);
+        });
+
+        ctx.restore();
+
+        // 閃光
+        if (flashScreen > 0) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${flashScreen/15})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            flashScreen--;
+        }
+
+        // 小地圖 (簡化版)
+        const mapSize=120, mx=canvas.width-mapSize-10, my=10, scale=mapSize/WORLD_WIDTH;
+        ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(mx,my,mapSize,mapSize);
+        ctx.fillStyle='#f00'; enemies.forEach(e=>ctx.fillRect(mx+e.x*scale, my+e.y*scale, 2, 2));
+        ctx.fillStyle='#0ff'; ctx.fillRect(mx+player.x*scale, my+player.y*scale, 3, 3);
+        ctx.strokeStyle='#fff'; ctx.strokeRect(mx+camera.x*scale, my+camera.y*scale, canvas.width*scale, canvas.height*scale);
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+
+</script>
+</body>
+</html> 

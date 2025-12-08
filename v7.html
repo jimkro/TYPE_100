@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Typing Survival: v7 Combat Evolved</title>
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            color: #eee;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none; /* 禁止選取文字 */
+        }
+        canvas { display: block; }
+        
+        /* UI 層 */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* 左上：狀態 */
+        .top-left { text-align: left; }
+        .hp-bar-bg { width: 200px; height: 15px; background: #333; border: 1px solid #555; margin-top: 5px; }
+        .hp-bar-fill { height: 100%; background: #ff3333; width: 100%; transition: width 0.2s; }
+        .xp-bar-bg { width: 200px; height: 8px; background: #333; border: 1px solid #555; margin-top: 2px; }
+        .xp-bar-fill { height: 100%; background: #00d2ff; width: 0%; transition: width 0.2s; }
+
+        /* 左下：武器庫 */
+        .bottom-left { text-align: left; margin-bottom: 20px; }
+        .weapon-list { display: flex; gap: 10px; margin-top: 10px; }
+        .weapon-slot { 
+            padding: 5px 10px; background: rgba(0,0,0,0.5); border: 1px solid #555; 
+            color: #888; font-size: 14px;
+        }
+        .weapon-slot.active { 
+            border-color: #ffd700; color: #ffd700; background: rgba(255, 215, 0, 0.1); 
+            transform: scale(1.1); font-weight: bold;
+        }
+
+        /* 升級選單 */
+        #upgrade-modal {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 100;
+            pointer-events: auto;
+        }
+        .card-container { display: flex; gap: 20px; }
+        .card {
+            background: #222; border: 2px solid #555; padding: 20px; width: 220px;
+            text-align: center; cursor: pointer; transition: 0.2s;
+        }
+        .card:hover { border-color: #ffd700; transform: scale(1.05); background: #333; }
+        .card h3 { color: #00d2ff; margin-top: 0; }
+        .card .level-tag { color: #ffd700; font-size: 12px; font-weight: bold; }
+        .card p { font-size: 13px; color: #aaa; line-height: 1.4; }
+        
+        .key-hint { 
+            display: block; margin-top: 10px; padding: 4px;
+            color: #000; background: #ffd700; font-weight: bold; border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <div class="top-left">
+        <h2 style="margin:0">LV.<span id="levelDisplay">1</span></h2>
+        <div class="hp-bar-bg"><div id="hp-bar" class="hp-bar-fill"></div></div>
+        <div class="xp-bar-bg"><div id="xp-bar" class="xp-bar-fill"></div></div>
+    </div>
+
+    <div class="bottom-left">
+        <div style="font-size: 24px;">當前武器: <span id="currentWeaponDisplay" style="color:#f0f">GUN</span></div>
+        <div class="weapon-list" id="inventoryList">
+            </div>
+        <div style="margin-top:10px; font-size:12px; color:#aaa;">
+            [TAB] 切換武器 | [SPACE] 確認輸入
+        </div>
+    </div>
+</div>
+
+<div id="upgrade-modal">
+    <h1 style="color:white">LEVEL UP!</h1>
+    <div class="card-container" id="cardContainer"></div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    /**
+     * ==========================================
+     * GAME VERSION: v7.0 (Combat Evolved)
+     * ==========================================
+     * * [關鍵邏輯變更 LOG]
+     * * 1. 輸入與操作優化 (Input Overhaul):
+     * - [SPACE] 取代 Enter 發送指令。
+     * - [TAB] 快速切換武器 (循環切換已擁有的武器)。
+     * - 取消了輸入武器名稱來切換的機制，改為純快捷鍵，讓打字專注於攻擊和移動。
+     * * 2. 武器升級機制 (Upgrade System):
+     * - 升級選單若選到已擁有的武器，會提升該武器等級 (Lv1 -> Lv2)。
+     * - 等級影響：爆炸範圍、燃燒時間、子彈大小等。
+     * * 3. 燃燒瓶重製 (Molotov Rework):
+     * - 舊版：只有地板火海。
+     * - 新版：落地時先造成一次範圍傷害 (AoE)，**然後**才留下火海。這讓它有了即時解場能力。
+     * * 4. UI 全面升級 (HUD):
+     * - 新增 HP 條、XP 條。
+     * - 顯示武器欄 (Inventory)，高亮當前裝備。
+     * - 右上角小地圖 (Minimap) 回歸並常駐。
+     * * 5. 難度調整 (Balance):
+     * - 怪物移動速度減半 (0.5x Multiplier)，給予玩家適應新操作的空間。
+     * * ==========================================
+     */
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // UI Elements
+    const uiLevel = document.getElementById('levelDisplay');
+    const uiHpBar = document.getElementById('hp-bar');
+    const uiXpBar = document.getElementById('xp-bar');
+    const uiCurrentWeapon = document.getElementById('currentWeaponDisplay');
+    const uiInventory = document.getElementById('inventoryList');
+    const modal = document.getElementById('upgrade-modal');
+    const cardContainer = document.getElementById('cardContainer');
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // 遊戲狀態
+    let gameState = 'PLAYING';
+    let currentInput = "";
+    
+    // 玩家設定
+    const WORLD_W = 3000, WORLD_H = 3000;
+    const player = {
+        x: WORLD_W/2, y: WORLD_H/2, size: 30,
+        hp: 100, maxHp: 100,
+        xp: 0, maxXp: 100, level: 1,
+        speed: 120,
+        // 武器庫結構: [{id: 'gun', level: 1}, ...]
+        inventory: [{id: 'gun', level: 1}],
+        weaponIndex: 0 // 當前選擇 inventory 的第幾個
+    };
+
+    const camera = { x: 0, y: 0 };
+    let enemies = [];
+    let projectiles = [];
+    let effects = [];
+    let fireZones = [];
+
+    // 字典與資料庫
+    const WORD_LIST = ['run', 'hit', 'dry', 'log', 'net', 'web', 'bot', 'cpu', 'ram', 'ssd', 'lan', 'wan', 'ip', 'mac', 'os', 'win', 'unix', 'java', 'ruby', 'rust', 'perl', 'lisp', 'dart', 'go', 'php', 'html', 'css', 'sql', 'xml', 'json', 'yaml', 'toml', 'ini', 'csv', 'soap', 'rest', 'grpc', 'ajax', 'cors', 'dom', 'bom', 'mvc', 'mvvm', 'spa', 'pwa', 'ssr', 'seo'];
+    
+    const WEAPON_DB = {
+        'gun': { name: '手槍', baseDesc: '單體高傷。升級提升子彈大小。' },
+        'bow': { name: '穿透弓', baseDesc: '直線穿透。升級提升判定寬度。' },
+        'grenade': { name: '虛弱雷', baseDesc: '範圍削字。升級擴大爆炸半徑。' },
+        'molotov': { name: '燃燒瓶', baseDesc: '範圍傷害+火海。升級延長燃燒時間。' },
+        'heal': { name: '急救包', baseDesc: '回復 50% 生命。' }
+    };
+
+    // --- 核心功能 ---
+
+    function resetGame() {
+        player.x = WORLD_W/2; player.y = WORLD_H/2;
+        player.hp = 100; player.xp = 0; player.level = 1; player.maxXp = 100;
+        player.inventory = [{id: 'gun', level: 1}];
+        player.weaponIndex = 0;
+        enemies = []; projectiles = []; fireZones = [];
+        gameState = 'PLAYING';
+        updateUI();
+    }
+    resetGame(); // Init
+
+    // 輸入處理
+    window.addEventListener('keydown', (e) => {
+        if (gameState === 'PAUSED') {
+            if (['1','2','3'].includes(e.key)) {
+                // 升級選單快捷鍵
+                const index = parseInt(e.key) - 1;
+                const cards = document.querySelectorAll('.card');
+                if (cards[index]) cards[index].click();
+            }
+            return;
+        }
+
+        // [TAB] 切換武器
+        if (e.code === 'Tab') {
+            e.preventDefault(); // 防止切換焦點
+            cycleWeapon();
+            return;
+        }
+
+        // [SPACE] 發送指令
+        if (e.code === 'Space') {
+            e.preventDefault(); // 防止網頁捲動
+            processCommand();
+            currentInput = "";
+            return;
+        }
+
+        if (e.key === 'Backspace') {
+            currentInput = currentInput.slice(0, -1);
+        } else if (/^[a-zA-Z]$/.test(e.key)) {
+            currentInput += e.key.toLowerCase();
+        }
+    });
+
+    function cycleWeapon() {
+        if (player.inventory.length <= 1) return;
+        player.weaponIndex = (player.weaponIndex + 1) % player.inventory.length;
+        const current = player.inventory[player.weaponIndex];
+        createEffect(`SWITCH: ${current.id.toUpperCase()}`, player.x, player.y - 50, '#fff');
+        updateUI();
+    }
+
+    const MOVEMENT_COMMANDS = {
+        'up': () => player.y = Math.max(0, player.y - player.speed),
+        'down': () => player.y = Math.min(WORLD_H - player.size, player.y + player.speed),
+        'left': () => player.x = Math.max(0, player.x - player.speed),
+        'right': () => player.x = Math.min(WORLD_W - player.size, player.x + player.speed),
+    };
+
+    function processCommand() {
+        // 1. 移動
+        if (MOVEMENT_COMMANDS[currentInput]) {
+            MOVEMENT_COMMANDS[currentInput]();
+            return;
+        }
+
+        // 2. 攻擊 (只能打怪，不能打指令換槍了)
+        const target = enemies.find(e => e.word === currentInput);
+        if (target) {
+            shoot(target);
+        } else {
+            createEffect("?", player.x, player.y - 50, '#555', 15);
+        }
+    }
+
+    function shoot(target) {
+        const dx = target.x - player.x;
+        const dy = target.y - player.y;
+        const dist = Math.hypot(dx, dy);
+        const currentWep = player.inventory[player.weaponIndex];
+
+        projectiles.push({
+            x: player.x, y: player.y,
+            vx: (dx/dist)*25, vy: (dy/dist)*25,
+            weaponId: currentWep.id,
+            level: currentWep.level, // 傳入等級
+            targetId: target.word,
+            life: 80
+        });
+    }
+
+    // --- RPG 系統 ---
+    function addXP(amt) {
+        player.xp += amt;
+        if (player.xp >= player.maxXp) {
+            player.xp -= player.maxXp;
+            player.level++;
+            player.maxXp = Math.floor(player.maxXp * 1.2);
+            showLevelUp();
+        }
+        updateUI();
+    }
+
+    function showLevelUp() {
+        gameState = 'PAUSED';
+        modal.style.display = 'flex';
+        cardContainer.innerHTML = '';
+        
+        // 隨機池
+        const pool = ['gun', 'bow', 'grenade', 'molotov', 'heal'];
+        const options = pool.sort(()=>0.5-Math.random()).slice(0,3);
+
+        options.forEach((key, idx) => {
+            const hasWep = player.inventory.find(i => i.id === key);
+            const db = WEAPON_DB[key];
+            let title = db.name;
+            let sub = db.baseDesc;
+            let levelTag = "";
+
+            if (key !== 'heal') {
+                if (hasWep) {
+                    title += " (升級)";
+                    levelTag = `Lv.${hasWep.level} ➜ Lv.${hasWep.level+1}`;
+                    sub = "強化武器效果範圍或持續時間。";
+                } else {
+                    title += " (新武器)";
+                    levelTag = "解鎖新裝備";
+                }
+            }
+
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.innerHTML = `
+                <h3>${title}</h3>
+                <div class="level-tag">${levelTag}</div>
+                <p>${sub}</p>
+                <span class="key-hint">按 [${idx+1}] 選擇</span>
+            `;
+            card.onclick = () => selectReward(key);
+            cardContainer.appendChild(card);
+        });
+    }
+
+    function selectReward(key) {
+        if (key === 'heal') {
+            player.hp = Math.min(player.maxHp, player.hp + 50);
+        } else {
+            const existing = player.inventory.find(i => i.id === key);
+            if (existing) {
+                existing.level++;
+                createEffect(`UPGRADE: ${key.toUpperCase()}`, player.x, player.y-60, '#ffd700');
+            } else {
+                player.inventory.push({id: key, level: 1});
+                createEffect(`UNLOCK: ${key.toUpperCase()}`, player.x, player.y-60, '#0f0');
+                // 自動切換到新武器
+                player.weaponIndex = player.inventory.length - 1;
+            }
+        }
+        modal.style.display = 'none';
+        gameState = 'PLAYING';
+        updateUI();
+    }
+
+    function updateUI() {
+        uiLevel.innerText = player.level;
+        uiHpBar.style.width = (player.hp / player.maxHp * 100) + "%";
+        uiXpBar.style.width = (player.xp / player.maxXp * 100) + "%";
+        
+        const cur = player.inventory[player.weaponIndex];
+        uiCurrentWeapon.innerText = `${cur.id.toUpperCase()} (Lv.${cur.level})`;
+
+        // Render Inventory List
+        uiInventory.innerHTML = '';
+        player.inventory.forEach((item, idx) => {
+            const div = document.createElement('div');
+            div.className = `weapon-slot ${idx === player.weaponIndex ? 'active' : ''}`;
+            div.innerText = `${item.id.substring(0,3).toUpperCase()} ${item.level}`;
+            uiInventory.appendChild(div);
+        });
+    }
+
+    // --- 遊戲邏輯 ---
+
+    function updatePhysics() {
+        if (gameState !== 'PLAYING') return;
+
+        // Camera
+        camera.x = player.x - canvas.width/2;
+        camera.y = player.y - canvas.height/2;
+        camera.x = Math.max(0, Math.min(camera.x, WORLD_W - canvas.width));
+        camera.y = Math.max(0, Math.min(camera.y, WORLD_H - canvas.height));
+
+        // Spawn
+        if (Math.random() < 0.012) {
+            // 找空位
+            let ex, ey, d;
+            do { ex=Math.random()*WORLD_W; ey=Math.random()*WORLD_H; d=Math.hypot(ex-player.x, ey-player.y); } while(d<600);
+            
+            // 找單字
+            const used = enemies.map(e=>e.word);
+            const pool = WORD_LIST.filter(w=>!used.includes(w));
+            if(pool.length > 0) {
+                let w = pool[Math.floor(Math.random()*pool.length)];
+                if (player.level > 5 && Math.random()>0.5) w += pool[Math.floor(Math.random()*pool.length)]; // 雙字詞
+                
+                // 怪物速度砍半
+                const baseSpeed = (0.5 + Math.random() * 0.8) * 0.5; 
+
+                enemies.push({
+                    x: ex, y: ey, size: 25, color: '#ff3333',
+                    word: w, speed: baseSpeed,
+                    burnTimer: 0
+                });
+            }
+        }
+
+        // Enemies
+        enemies.forEach(e => {
+            const dx = player.x - e.x, dy = player.y - e.y, dist = Math.hypot(dx,dy);
+            if(dist>0) { e.x += (dx/dist)*e.speed; e.y += (dy/dist)*e.speed; }
+            if(dist < player.size) player.hp -= 0.1;
+            
+            // Fire Effect
+            let inFire = fireZones.some(f => Math.hypot(e.x-f.x, e.y-f.y) < f.radius);
+            if (inFire) {
+                e.burnTimer++;
+                if (e.burnTimer % 40 === 0 && e.word.length > 0) { // 燃燒速度
+                    e.word = e.word.slice(0, -1);
+                    createEffect("..", e.x, e.y-10, '#f80', 10);
+                    if(e.word.length===0) e.dead=true;
+                }
+            }
+        });
+
+        // Projectiles
+        for(let i=projectiles.length-1; i>=0; i--) {
+            let p = projectiles[i];
+            p.x += p.vx; p.y += p.vy; p.life--;
+            
+            if (p.life<=0) { projectiles.splice(i,1); continue; }
+
+            // Collision
+            let hit = false;
+            for(let e of enemies) {
+                // 判定範圍隨武器等級增加
+                let hitRadius = e.size + 5;
+                if (p.weaponId === 'bow') hitRadius += p.level * 2; 
+
+                if (Math.hypot(p.x-e.x, p.y-e.y) < hitRadius) {
+                    // HIT LOGIC
+                    if (p.weaponId === 'gun' && e.word === p.targetId) {
+                        e.dead = true; hit = true;
+                    } 
+                    else if (p.weaponId === 'bow') {
+                        e.dead = true; hit = true;
+                        addXP(5);
+                    }
+                    else if (p.weaponId === 'grenade' || p.weaponId === 'molotov') {
+                        // 範圍傷害 (Grenade & Molotov 落地都先炸)
+                        createEffect("BOOM", p.x, p.y, '#fff', 30);
+                        const radius = 120 + (p.level * 30); // 等級增加半徑
+                        const cutChars = 2 + Math.floor(p.level/2); // 每2級多削1個字
+
+                        enemies.forEach(sub => {
+                            if(Math.hypot(sub.x-p.x, sub.y-p.y) < radius) {
+                                sub.word = sub.word.slice(0, -cutChars);
+                                createEffect(`-${cutChars}`, sub.x, sub.y-20, '#fff', 12);
+                                if(sub.word.length===0) { sub.dead=true; addXP(10); }
+                            }
+                        });
+                        hit = true;
+
+                        // Molotov 額外生火
+                        if (p.weaponId === 'molotov') {
+                            fireZones.push({
+                                x: p.x, y: p.y, 
+                                radius: 80 + (p.level*10), 
+                                life: 500 + (p.level*100)
+                            });
+                        }
+                    }
+
+                    if(hit && p.weaponId !== 'bow') { projectiles.splice(i,1); break; }
+                }
+            }
+        }
+
+        // Clean up
+        fireZones = fireZones.filter(z => --z.life > 0);
+        
+        const dead = enemies.filter(e => e.dead);
+        if(dead.length > 0) {
+            dead.forEach(e => {
+                createEffect("KILL", e.x, e.y, '#ff0');
+                addXP(20);
+            });
+            enemies = enemies.filter(e => !e.dead);
+        }
+
+        if(player.hp <= 0) {
+            ctx.fillStyle='rgba(0,0,0,0.8)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+            ctx.fillStyle='red'; ctx.font='60px monospace'; ctx.textAlign='center';
+            ctx.fillText("YOU DIED", canvas.width/2, canvas.height/2);
+            gameState='GAMEOVER';
+        }
+    }
+
+    // --- 繪圖迴圈 ---
+    function draw() {
+        requestAnimationFrame(draw);
+        updatePhysics();
+        if (gameState === 'GAMEOVER') return;
+
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        
+        ctx.save();
+        ctx.translate(-camera.x, -camera.y);
+        
+        // 1. 世界
+        ctx.strokeStyle='#333'; 
+        ctx.beginPath(); 
+        for(let i=0;i<=WORLD_W;i+=200){ctx.moveTo(i,0);ctx.lineTo(i,WORLD_H);}
+        for(let i=0;i<=WORLD_H;i+=200){ctx.moveTo(0,i);ctx.lineTo(WORLD_W,i);}
+        ctx.stroke();
+        ctx.strokeStyle='#f00'; ctx.lineWidth=5; ctx.strokeRect(0,0,WORLD_W,WORLD_H);
+
+        // 2. 火海
+        fireZones.forEach(z => {
+            ctx.fillStyle = `rgba(255, 100, 0, ${0.4 + Math.random()*0.2})`;
+            ctx.beginPath(); ctx.arc(z.x, z.y, z.radius, 0, Math.PI*2); ctx.fill();
+        });
+
+        // 3. 怪物
+        enemies.forEach(e => {
+            if(Math.abs(e.x-player.x)>canvas.width) return; // 簡單剔除
+            ctx.fillStyle = e.color;
+            ctx.fillRect(e.x-e.size/2, e.y-e.size/2, e.size, e.size);
+            ctx.fillStyle = '#fff'; ctx.font='bold 18px Courier New'; ctx.textAlign='center';
+            ctx.fillText(e.word, e.x, e.y-18);
+        });
+
+        // 4. 子彈
+        projectiles.forEach(p => {
+            ctx.beginPath();
+            if(p.weaponId==='bow') {
+                 ctx.strokeStyle='#0f0'; ctx.lineWidth=4; ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.vx*2, p.y-p.vy*2); ctx.stroke();
+            } else {
+                 ctx.fillStyle = p.weaponId==='molotov'?'#f80':'#ff0';
+                 ctx.arc(p.x, p.y, 5 + p.level, 0, Math.PI*2); ctx.fill();
+            }
+        });
+
+        // 5. 玩家
+        ctx.fillStyle='#00d2ff';
+        ctx.fillRect(player.x-15, player.y-15, 30, 30);
+        
+        // 玩家輸入
+        ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(player.x-60, player.y-50, 120, 30);
+        ctx.fillStyle='#fff'; ctx.font='20px Courier New'; ctx.textAlign='center';
+        ctx.fillText(currentInput, player.x, player.y-30);
+
+        // 特效
+        effects.forEach((eff,i) => {
+            ctx.fillStyle=eff.color; ctx.font=`bold ${eff.size}px Courier New`;
+            ctx.fillText(eff.text, eff.x, eff.y);
+            eff.y-=1; eff.life--; if(eff.life<0) effects.splice(i,1);
+        });
+
+        ctx.restore();
+
+        // 6. 小地圖 (Minimap) - 右上角
+        drawMinimap();
+    }
+
+    function drawMinimap() {
+        const size = 150, pad = 20;
+        const mx = canvas.width - size - pad, my = pad;
+        const scale = size / WORLD_W;
+
+        // Bg
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(mx, my, size, size);
+        ctx.strokeStyle = '#888'; ctx.lineWidth=2; ctx.strokeRect(mx, my, size, size);
+
+        // Enemies
+        ctx.fillStyle = '#f00';
+        enemies.forEach(e => ctx.fillRect(mx + e.x*scale, my + e.y*scale, 2, 2));
+
+        // Player
+        ctx.fillStyle = '#0ff'; ctx.beginPath();
+        ctx.arc(mx + player.x*scale, my + player.y*scale, 3, 0, Math.PI*2); ctx.fill();
+
+        // View Rect
+        ctx.strokeStyle = '#fff'; ctx.lineWidth=1;
+        ctx.strokeRect(mx + camera.x*scale, my + camera.y*scale, canvas.width*scale, canvas.height*scale);
+    }
+
+    function createEffect(text, x, y, color, size=20) {
+        effects.push({text, x, y, color, life: 40, size});
+    }
+
+    draw();
+
+</script>
+</body>
+</html>

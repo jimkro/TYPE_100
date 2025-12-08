@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Typing Survival: v6 RPG</title>
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            color: #eee;
+            overflow: hidden; /* 防止捲動 */
+            font-family: 'Courier New', Courier, monospace;
+        }
+        canvas {
+            display: block; /* 移除 canvas 預設邊距 */
+        }
+        
+        /* UI 覆蓋層 */
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none; /* 讓點擊穿透到遊戲 */
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        /* 升級選單 (Modal) */
+        #upgrade-modal {
+            display: none; /* 預設隱藏 */
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 100;
+        }
+        .card-container {
+            display: flex;
+            gap: 20px;
+        }
+        .card {
+            background: #222;
+            border: 2px solid #555;
+            padding: 20px;
+            width: 200px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .card:hover {
+            border-color: #ffd700;
+            transform: scale(1.05);
+            background: #333;
+        }
+        .card h3 { color: #00d2ff; margin-top: 0; }
+        .card p { font-size: 14px; color: #aaa; }
+        .key-hint { 
+            display: block; margin-top: 10px; 
+            color: #ffd700; font-weight: bold; border: 1px solid #ffd700;
+        }
+
+        /* 經驗條 */
+        #xp-bar-container {
+            position: absolute;
+            bottom: 0; left: 0; width: 100%; height: 10px;
+            background: #333;
+        }
+        #xp-bar-fill {
+            height: 100%;
+            background: #0f0;
+            width: 0%;
+            transition: width 0.2s;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <h2>Lv.<span id="levelDisplay">1</span></h2>
+    <p>目前武器: <span id="weaponDisplay" style="color:#f0f; font-weight:bold;">GUN</span></p>
+    <p>指令: 輸入武器名切換 (需先解鎖)</p>
+</div>
+
+<div id="upgrade-modal">
+    <h1 style="color:white">LEVEL UP! 選擇獎勵</h1>
+    <div class="card-container" id="cardContainer">
+        </div>
+</div>
+
+<div id="xp-bar-container"><div id="xp-bar-fill"></div></div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    /**
+     * ==========================================
+     * GAME VERSION: v6.0 (RPG Update)
+     * ==========================================
+     * * [關鍵邏輯變更 LOG]
+     * * 1. 全螢幕適配 (Fullscreen):
+     * - Canvas 現在會動態抓取 window.innerWidth/Height，不再是固定大小。
+     * * 2. 經驗值與暫停 (XP & Pause):
+     * - 移除 Score，改為 XP。擊殺怪物獲得 XP，滿條後觸發 `triggerLevelUp()`。
+     * - 升級時 `gameState` 設為 'PAUSED'，停止所有物理運算，直到玩家選擇獎勵。
+     * * 3. 武器效果多樣化 (Advanced Weaponry):
+     * - [Gun]: 保持原樣 (單體)。
+     * - [Bow]: 保持原樣 (穿透)。
+     * - [Grenade] (新): 擊中目標後產生爆炸半徑。範圍內的敵人執行 `word.slice(0, -2)`。
+     * (邏輯：不是直接殺死，而是減少輸入負擔的輔助武器)。
+     * - [Molotov] (新): 擊中目標後在地上生成 `FireZone`。
+     * (邏輯：Dot傷害，怪物接觸火海時，每隔 60 幀自動削減最後一個字母)。
+     * * 4. 武器獲取機制 (Unlock System):
+     * - 玩家初始只有 Gun。
+     * - 升級時隨機抽出 3 個選項 (可能是新武器，也可能是補血)。
+     * - 獲得武器後，該武器字串進入 `unlockedWeapons` 列表，玩家可隨時輸入切換。
+     * * ==========================================
+     */
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const uiLevel = document.getElementById('levelDisplay');
+    const uiWeapon = document.getElementById('weaponDisplay');
+    const xpBar = document.getElementById('xp-bar-fill');
+    const modal = document.getElementById('upgrade-modal');
+    const cardContainer = document.getElementById('cardContainer');
+
+    // --- 1. 系統設定 ---
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // 遊戲狀態
+    let gameState = 'PLAYING'; // 'PLAYING', 'PAUSED', 'GAMEOVER'
+    let currentInput = "";
+    
+    // --- 2. 玩家與 RPG 數值 ---
+    const player = {
+        x: 0, y: 0, // 初始化稍後在 resetGame 做
+        size: 30,
+        hp: 100, maxHp: 100,
+        xp: 0, maxXp: 100, level: 1,
+        speed: 120, // 稍微快一點適應大地圖
+        weapon: 'gun',
+        unlockedWeapons: ['gun'] // 已解鎖的武器
+    };
+
+    // 鏡頭
+    const camera = { x: 0, y: 0 };
+    const WORLD_WIDTH = 3000;
+    const WORLD_HEIGHT = 3000;
+
+    // 物件池
+    let enemies = [];
+    let projectiles = [];
+    let effects = [];
+    let fireZones = []; // 燃燒區域
+
+    // 武器資料庫
+    const WEAPON_DB = {
+        'gun': { type: 'gun', name: '手槍', desc: '基礎武器，單體傷害。' },
+        'bow': { type: 'bow', name: '穿透弓', desc: '穿透直線上的所有敵人。' },
+        'grenade': { type: 'grenade', name: '虛弱手雷', desc: '爆炸！炸掉範圍內敵人 2 個字母。' },
+        'molotov': { type: 'molotov', name: '燃燒瓶', desc: '留下一片火海，持續燒短單字。' },
+        'heal': { type: 'heal', name: '急救包', desc: '回復 50% 生命值。' } // 特殊選項
+    };
+
+    // 單字庫
+    const WORD_LIST = ['run', 'hit', 'dry', 'log', 'net', 'web', 'bot', 'cpu', 'ram', 'ssd', 'lan', 'wan', 'ip', 'mac', 'os', 'win', 'mac', 'ios', 'app', 'dev', 'api', 'git', 'ssh', 'ssl', 'ftp', 'tcp', 'udp', 'dns', 'url', 'http', 'png', 'jpg', 'gif', 'svg', 'mp4', 'mp3', 'wav', 'mov', 'avi', 'mkv', 'zip', 'tar', 'gz', 'rar', '7z', 'iso', 'exe', 'bat', 'sh', 'bin', 'cmd'];
+
+    // --- 3. 核心邏輯 ---
+
+    function resetGame() {
+        player.x = WORLD_WIDTH/2;
+        player.y = WORLD_HEIGHT/2;
+        player.hp = 100;
+        player.xp = 0;
+        player.maxXp = 100;
+        player.level = 1;
+        player.weapon = 'gun';
+        player.unlockedWeapons = ['gun'];
+        enemies = [];
+        projectiles = [];
+        fireZones = [];
+        gameState = 'PLAYING';
+        updateUI();
+    }
+    resetGame();
+
+    function updateCamera() {
+        camera.x = player.x - canvas.width / 2;
+        camera.y = player.y - canvas.height / 2;
+        camera.x = Math.max(0, Math.min(camera.x, WORLD_WIDTH - canvas.width));
+        camera.y = Math.max(0, Math.min(camera.y, WORLD_HEIGHT - canvas.height));
+    }
+
+    function spawnEntity() {
+        if (gameState !== 'PLAYING') return;
+
+        // 生成怪物
+        if (Math.random() < 0.015) { 
+            let ex, ey, dist;
+            do {
+                ex = Math.random() * WORLD_WIDTH;
+                ey = Math.random() * WORLD_HEIGHT;
+                dist = Math.hypot(ex - player.x, ey - player.y);
+            } while (dist < 500); // 離玩家遠一點
+
+            const usedWords = enemies.map(e => e.word);
+            const availableWords = WORD_LIST.filter(w => !usedWords.includes(w));
+            
+            if (availableWords.length > 0) {
+                // 隨著等級提升，單字可能會變長 (這裡簡單模擬，將兩個單字拼起來)
+                let word = availableWords[Math.floor(Math.random() * availableWords.length)];
+                if (player.level > 3 && Math.random() > 0.5) word += availableWords[Math.floor(Math.random() * availableWords.length)];
+
+                enemies.push({
+                    x: ex, y: ey, size: 25,
+                    word: word,
+                    maxWord: word, // 紀錄原始單字長度用於血條顯示(可選)
+                    speed: 0.8 + Math.random() * 0.5,
+                    color: '#ff3333',
+                    burnTimer: 0 // 用於燃燒狀態
+                });
+            }
+        }
+    }
+
+    // --- 輸入與指令處理 ---
+    window.addEventListener('keydown', (e) => {
+        if (gameState !== 'PLAYING') {
+            // 如果在升級介面，可以用鍵盤選
+            if (gameState === 'PAUSED' && ['1','2','3'].includes(e.key)) {
+                const index = parseInt(e.key) - 1;
+                const cards = document.querySelectorAll('.card');
+                if (cards[index]) cards[index].click();
+            }
+            return;
+        }
+
+        if (e.key === 'Enter') {
+            processCommand();
+            currentInput = ""; 
+        } else if (e.key === 'Backspace') {
+            currentInput = currentInput.slice(0, -1);
+        } else if (/^[a-zA-Z]$/.test(e.key)) {
+            currentInput += e.key.toLowerCase();
+        }
+    });
+
+    const COMMANDS = {
+        'up':    () => player.y = Math.max(0, player.y - player.speed),
+        'down':  () => player.y = Math.min(WORLD_HEIGHT - player.size, player.y + player.speed),
+        'left':  () => player.x = Math.max(0, player.x - player.speed),
+        'right': () => player.x = Math.min(WORLD_WIDTH - player.size, player.x + player.speed),
+    };
+
+    function processCommand() {
+        // 1. 移動指令
+        if (COMMANDS[currentInput]) {
+            COMMANDS[currentInput]();
+            return;
+        }
+        
+        // 2. 切換武器指令
+        // 檢查輸入是否為已解鎖的武器名稱
+        if (player.unlockedWeapons.includes(currentInput)) {
+            player.weapon = currentInput;
+            createEffect(`SWITCH: ${currentInput.toUpperCase()}`, player.x, player.y - 50, '#0f0');
+            updateUI();
+            return;
+        }
+
+        // 3. 攻擊指令
+        const targetEnemy = enemies.find(e => e.word === currentInput);
+        if (targetEnemy) {
+            shootProjectile(targetEnemy);
+        } else {
+            createEffect("?", player.x, player.y - 50, '#888', 15);
+        }
+    }
+
+    // --- 戰鬥系統 ---
+
+    function shootProjectile(target) {
+        const dx = target.x - player.x;
+        const dy = target.y - player.y;
+        const dist = Math.hypot(dx, dy);
+        
+        projectiles.push({
+            x: player.x + player.size/2,
+            y: player.y + player.size/2,
+            vx: (dx / dist) * 20, // 子彈速度
+            vy: (dy / dist) * 20,
+            type: player.weapon, 
+            targetId: target.word,
+            life: 100
+        });
+    }
+
+    function addXP(amount) {
+        player.xp += amount;
+        if (player.xp >= player.maxXp) {
+            player.xp -= player.maxXp;
+            player.level++;
+            player.maxXp = Math.floor(player.maxXp * 1.2);
+            triggerLevelUp();
+        }
+        updateUI();
+    }
+
+    function triggerLevelUp() {
+        gameState = 'PAUSED';
+        modal.style.display = 'flex';
+        cardContainer.innerHTML = '';
+
+        // 隨機選 3 個獎勵
+        // 池子包含：所有武器 + 補血
+        const pool = ['gun', 'bow', 'grenade', 'molotov', 'heal'];
+        // 簡單洗牌取前三
+        const options = pool.sort(() => 0.5 - Math.random()).slice(0, 3);
+
+        options.forEach((optKey, index) => {
+            const data = WEAPON_DB[optKey];
+            const div = document.createElement('div');
+            div.className = 'card';
+            div.innerHTML = `
+                <h3>${data.name}</h3>
+                <p>${data.desc}</p>
+                <p style="color:#fff; margin-top:10px;">指令: ${optKey}</p>
+                <span class="key-hint">按 [${index+1}] 選擇</span>
+            `;
+            div.onclick = () => selectReward(optKey);
+            cardContainer.appendChild(div);
+        });
+    }
+
+    function selectReward(key) {
+        if (key === 'heal') {
+            player.hp = Math.min(player.maxHp, player.hp + 50);
+            createEffect("HEALED!", player.x, player.y - 50, '#0f0');
+        } else {
+            if (!player.unlockedWeapons.includes(key)) {
+                player.unlockedWeapons.push(key);
+                createEffect("UNLOCKED!", player.x, player.y - 50, '#ffd700');
+            } else {
+                createEffect("UPGRADED!", player.x, player.y - 50, '#ffd700');
+                // 這裡可以加強武器傷害，暫時省略
+            }
+            player.weapon = key; // 獲得後直接切換
+        }
+        
+        modal.style.display = 'none';
+        gameState = 'PLAYING';
+        updateUI();
+    }
+
+    function updateUI() {
+        uiLevel.textContent = player.level;
+        uiWeapon.textContent = player.weapon.toUpperCase();
+        const pct = (player.xp / player.maxXp) * 100;
+        xpBar.style.width = pct + "%";
+    }
+
+    function createEffect(text, x, y, color, size=20) {
+        effects.push({text, x, y, color, life: 40, size});
+    }
+
+    // --- 4. 遊戲主迴圈 ---
+    function gameLoop() {
+        requestAnimationFrame(gameLoop);
+        
+        if (gameState === 'PAUSED') return;
+
+        if (player.hp <= 0) {
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+            ctx.fillStyle = 'red'; ctx.font = '50px Courier New'; ctx.textAlign = 'center';
+            ctx.fillText("YOU DIED", canvas.width/2, canvas.height/2);
+            ctx.font = '20px Courier New';
+            ctx.fillText("Refresh to Restart", canvas.width/2, canvas.height/2 + 50);
+            return;
+        }
+
+        updateCamera();
+        spawnEntity();
+
+        // --- 物理計算 ---
+
+        // 1. 怪物移動 & 燃燒
+        enemies.forEach(e => {
+            // 移動
+            const dx = player.x - e.x;
+            const dy = player.y - e.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 0) { e.x += (dx/dist) * e.speed; e.y += (dy/dist) * e.speed; }
+            if (dist < player.size) { player.hp -= 0.2; } // 碰撞扣血
+
+            // 檢查是否在火海中
+            let inFire = fireZones.some(z => Math.hypot(e.x - z.x, e.y - z.y) < z.radius);
+            if (inFire) {
+                e.burnTimer++;
+                if (e.burnTimer % 60 === 0) { // 每秒燒一次
+                    if (e.word.length > 0) {
+                        e.word = e.word.slice(0, -1); // 燒掉最後一個字
+                        createEffect("BURN", e.x, e.y - 20, '#ffa500', 14);
+                        if (e.word.length === 0) e.dead = true; // 燒死
+                    }
+                }
+            }
+        });
+
+        // 2. 投射物
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+            let p = projectiles[i];
+            p.x += p.vx; p.y += p.vy; p.life--;
+            if (p.life <= 0) { projectiles.splice(i, 1); continue; }
+
+            // 碰撞檢查
+            let hit = false;
+            for (let e of enemies) {
+                if (Math.hypot(p.x - e.x, p.y - e.y) < e.size + 10) {
+                    // 擊中！
+                    
+                    if (p.type === 'gun' && e.word === p.targetId) {
+                        e.dead = true; hit = true;
+                    } 
+                    else if (p.type === 'bow') {
+                        e.dead = true; hit = true; // 弓箭不消失，繼續穿透
+                        createEffect("PIERCE", e.x, e.y, '#0f0');
+                        addXP(10);
+                    }
+                    else if (p.type === 'grenade') {
+                        // 產生爆炸效果
+                        createEffect("BOOM!", p.x, p.y, '#fff', 40);
+                        // 範圍傷害
+                        enemies.forEach(subE => {
+                            if (Math.hypot(subE.x - p.x, subE.y - p.y) < 150) { // 150px 半徑
+                                subE.word = subE.word.slice(0, -2); // 削兩個字
+                                createEffect("-2 CHARS", subE.x, subE.y - 20, '#fff', 12);
+                                if (subE.word.length === 0) { subE.dead = true; addXP(10); }
+                            }
+                        });
+                        hit = true; // 手雷撞到就爆
+                    }
+                    else if (p.type === 'molotov') {
+                        // 生成火海
+                        fireZones.push({x: p.x, y: p.y, radius: 80, life: 600}); // 持續 10秒
+                        createEffect("FIRE!", p.x, p.y, '#ffa500', 30);
+                        hit = true;
+                    }
+
+                    if (hit && p.type !== 'bow') { // 弓箭不刪除
+                        projectiles.splice(i, 1);
+                        break; 
+                    }
+                }
+            }
+        }
+
+        // 3. 火海更新
+        for (let i = fireZones.length - 1; i >= 0; i--) {
+            fireZones[i].life--;
+            if (fireZones[i].life <= 0) fireZones.splice(i, 1);
+        }
+
+        // 4. 清理死亡怪物
+        const deadEnemies = enemies.filter(e => e.dead);
+        if (deadEnemies.length > 0) {
+            deadEnemies.forEach(e => {
+                 createEffect("KILL", e.x, e.y, '#ff0');
+                 if(!e.word) addXP(20); // 如果是被燒死或炸死，補XP
+                 else addXP(20);
+            });
+            enemies = enemies.filter(e => !e.dead);
+        }
+
+        // --- 繪圖 ---
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 畫火海 (放在最底層)
+        ctx.save();
+        ctx.translate(-camera.x, -camera.y);
+        
+        fireZones.forEach(z => {
+            ctx.fillStyle = `rgba(255, 69, 0, ${0.3 + Math.random()*0.2})`; // 閃爍效果
+            ctx.beginPath(); ctx.arc(z.x, z.y, z.radius, 0, Math.PI*2); ctx.fill();
+        });
+
+        // 畫網格
+        ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
+        for(let x=0; x<=WORLD_WIDTH; x+=200) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,WORLD_HEIGHT); ctx.stroke(); }
+        for(let y=0; y<=WORLD_HEIGHT; y+=200) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(WORLD_WIDTH,y); ctx.stroke(); }
+        ctx.strokeStyle = '#f00'; ctx.strokeRect(0,0,WORLD_WIDTH, WORLD_HEIGHT);
+
+        // 畫怪物
+        enemies.forEach(e => {
+            if(e.x < camera.x - 50 || e.x > camera.x + canvas.width + 50 || e.y < camera.y - 50 || e.y > camera.y + canvas.height + 50) return;
+            
+            ctx.fillStyle = e.color;
+            ctx.fillRect(e.x - e.size/2, e.y - e.size/2, e.size, e.size);
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 18px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(e.word, e.x, e.y - 15);
+        });
+
+        // 畫投射物
+        projectiles.forEach(p => {
+            ctx.beginPath();
+            if (p.type === 'bow') {
+                ctx.strokeStyle = '#0f0'; ctx.lineWidth=3;
+                ctx.moveTo(p.x, p.y); ctx.lineTo(p.x-p.vx*3, p.y-p.vy*3); ctx.stroke();
+            } else if (p.type === 'grenade') {
+                ctx.fillStyle = '#fff'; ctx.arc(p.x, p.y, 6, 0, Math.PI*2); ctx.fill();
+            } else if (p.type === 'molotov') {
+                ctx.fillStyle = '#ffa500'; ctx.arc(p.x, p.y, 6, 0, Math.PI*2); ctx.fill();
+            } else {
+                ctx.fillStyle = '#ff0'; ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill();
+            }
+        });
+
+        // 畫玩家
+        ctx.fillStyle = '#00d2ff';
+        ctx.fillRect(player.x - player.size/2, player.y - player.size/2, player.size, player.size);
+        
+        // 畫輸入框
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(player.x - 60, player.y - 60, 120, 30);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 20px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(currentInput + "_", player.x, player.y - 40);
+        
+        // 畫特效
+        effects.forEach((eff, i) => {
+            ctx.fillStyle = eff.color;
+            ctx.font = `bold ${eff.size}px Courier New`;
+            ctx.fillText(eff.text, eff.x, eff.y);
+            eff.y -= 1; eff.life--;
+            if(eff.life <= 0) effects.splice(i, 1);
+        });
+
+        ctx.restore();
+    }
+    
+    // 啟動
+    gameLoop();
+
+</script>
+</body>
+</html>
