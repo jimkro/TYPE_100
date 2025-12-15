@@ -1,0 +1,99 @@
+body {
+    margin: 0;
+    background: #111;
+    color: #eee;
+    overflow: hidden;
+    font-family: 'Courier New', Courier, monospace;
+    user-select: none;
+}
+canvas { display: block; }
+
+/* UI 層 */
+#ui-layer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    display: flex; 
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 20px;
+    box-sizing: border-box;
+    z-index: 10;
+}
+
+.top-left { text-align: left; }
+.stage-info { font-size: 20px; color: #ffd700; font-weight: bold; margin-bottom: 5px; text-shadow: 0 0 5px #ffd700; }
+.hp-bar-bg { width: 250px; height: 15px; background: #333; border: 1px solid #555; margin-top: 5px; }
+.hp-bar-fill { height: 100%; background: #ff3333; width: 100%; transition: width 0.1s linear; }
+.xp-bar-bg { width: 250px; height: 8px; background: #333; border: 1px solid #555; margin-top: 2px; }
+.xp-bar-fill { height: 100%; background: #00d2ff; width: 0%; transition: width 0.1s linear; }
+
+.bottom-left { text-align: left; margin-bottom: 20px; }
+.weapon-list { display: flex; gap: 10px; margin-top: 10px; }
+.weapon-slot { 
+    padding: 5px 10px; background: rgba(0,0,0,0.5); border: 1px solid #555; 
+    color: #888; font-size: 14px;
+}
+.weapon-slot.active { 
+    border-color: #ffd700; color: #ffd700; background: rgba(255, 215, 0, 0.1); 
+    transform: scale(1.1); font-weight: bold;
+}
+
+/* 主選單 */
+#main-menu {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(10, 10, 15, 0.95);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 200;
+}
+.game-title { font-size: 60px; color: #00d2ff; text-shadow: 0 0 20px #00d2ff; margin-bottom: 10px; }
+.menu-btn-container { display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px; }
+.menu-btn {
+    background: #222; border: 2px solid #555; color: white; padding: 15px 40px;
+    font-size: 20px; cursor: pointer; font-family: inherit; transition: 0.2s; width: 450px;
+    text-align: left; position: relative;
+}
+.menu-btn:hover { background: #333; border-color: #ffd700; transform: translateX(10px); }
+.menu-btn span { display: block; font-size: 12px; color: #888; margin-top: 5px; }
+
+/* Modal */
+#modal-overlay {
+    display: none;
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    z-index: 100;
+    pointer-events: auto;
+}
+#modal-title { font-size: 48px; color: white; margin-bottom: 20px; text-shadow: 0 0 10px #fff; }
+#modal-desc { font-size: 18px; color: #aaa; margin-bottom: 30px; text-align: center; max-width: 600px; white-space: pre-line; }
+
+.card-container { display: flex; gap: 20px; margin-bottom: 20px; }
+.card {
+    background: #222; border: 2px solid #555; padding: 20px; width: 200px;
+    text-align: center; cursor: pointer; transition: 0.2s;
+}
+.card:hover { border-color: #ffd700; transform: scale(1.05); background: #333; }
+.card h3 { color: #00d2ff; margin-top: 0; }
+.card .level-tag { color: #ffd700; font-size: 12px; font-weight: bold; }
+.card p { font-size: 13px; color: #aaa; line-height: 1.4; }
+.key-hint { 
+    display: block; margin-top: 10px; padding: 4px;
+    color: #000; background: #ffd700; font-weight: bold; border-radius: 4px;
+}
+
+.action-btn-group { display: flex; gap: 20px; }
+.action-btn {
+    padding: 15px 30px; font-size: 20px; color: #000; background: #ffd700;
+    border: none; cursor: pointer; font-family: inherit; font-weight: bold;
+    display: none; 
+}
+.action-btn:hover { background: #fff; transform: scale(1.05); }
+.btn-secondary { background: #555; color: #fff; }
