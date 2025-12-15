@@ -119,8 +119,8 @@ export function updatePhysics(canvasWidth, canvasHeight) {
             if (e.shootTimer <= 0) {
                 state.enemyProjectiles.push({
                     x: e.x, y: e.y,
-                    vx: (dx/dist) * 1.2, // [修改] 速度提升至 1.2
-                    vy: (dy/dist) * 1.2,
+                    vx: (dx/dist) * 1.5, // [修改] 速度提升至 1.5
+                    vy: (dy/dist) * 1.5,
                     life: 600
                 });
                 e.shootTimer = 240; // 重置冷卻 (約4秒)
