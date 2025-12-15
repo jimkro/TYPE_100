@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Typing Survival: v11 Topic & Info Edition</title>
+    <style>
+        body {
+            margin: 0;
+            background: #0a0a0f;
+            color: #eee;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+        canvas { display: block; }
+        
+        /* UI 層 */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex; 
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        .top-left { text-align: left; }
+        .stage-info { font-size: 20px; color: #ffd700; font-weight: bold; margin-bottom: 5px; }
+        .hp-bar-bg { width: 250px; height: 15px; background: #333; border: 1px solid #555; }
+        .hp-bar-fill { height: 100%; background: #ff3333; width: 100%; transition: width 0.2s; }
+        .xp-bar-bg { width: 250px; height: 8px; background: #333; border: 1px solid #555; margin-top: 2px; }
+        .xp-bar-fill { height: 100%; background: #00d2ff; width: 0%; transition: width 0.2s; }
+
+        /* 資訊按鈕 */
+        #info-trigger {
+            position: absolute;
+            top: 20px; right: 20px;
+            width: 35px; height: 35px;
+            background: rgba(0, 210, 255, 0.2);
+            border: 2px solid #00d2ff;
+            color: #00d2ff;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; font-weight: bold; font-size: 20px;
+            pointer-events: auto; z-index: 300;
+        }
+        #info-trigger:hover { background: #00d2ff; color: #000; }
+
+        /* 主選單 */
+        #main-menu {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 15, 0.98);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 200;
+        }
+        .game-title { font-size: 50px; color: #00d2ff; text-shadow: 0 0 20px #00d2ff; margin-bottom: 30px; }
+        
+        .setup-section { display: flex; gap: 40px; margin-bottom: 40px; background: rgba(255,255,255,0.05); padding: 30px; border-radius: 10px; border: 1px solid #333; }
+        .setup-column { display: flex; flex-direction: column; gap: 10px; }
+        .setup-column h3 { margin: 0 0 10px 0; color: #ffd700; font-size: 16px; border-bottom: 1px solid #ffd700; padding-bottom: 5px; }
+
+        .menu-btn {
+            background: #222; border: 1px solid #555; color: white; padding: 12px 25px;
+            font-size: 16px; cursor: pointer; font-family: inherit; transition: 0.2s; text-align: left; width: 280px;
+        }
+        .menu-btn:hover { border-color: #00d2ff; background: #2a2a3a; transform: translateX(5px); }
+        .menu-btn.active { border-color: #ffd700; background: rgba(255, 215, 0, 0.1); color: #ffd700; }
+        .menu-btn span { display: block; font-size: 11px; color: #888; margin-top: 4px; }
+
+        /* Modal */
+        #modal-overlay {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.95); justify-content: center; align-items: center;
+            flex-direction: column; z-index: 400; pointer-events: auto;
+        }
+        .info-content {
+            width: 600px; max-height: 500px; overflow-y: auto; background: #1a1a1a;
+            border: 1px solid #00d2ff; padding: 30px; color: #ccc; font-size: 14px; line-height: 1.6;
+        }
+        .info-content h2 { color: #00d2ff; margin-top: 0; }
+        .close-info { margin-top: 20px; padding: 10px 20px; background: #00d2ff; border: none; cursor: pointer; font-weight: bold; }
+
+        .card-container { display: flex; gap: 15px; margin-bottom: 20px; }
+        .card { background: #222; border: 2px solid #555; padding: 15px; width: 180px; text-align: center; cursor: pointer; }
+        .card:hover { border-color: #ffd700; background: #333; }
+
+        .start-btn {
+            padding: 20px 60px; font-size: 24px; background: #ffd700; color: #000;
+            border: none; cursor: pointer; font-weight: bold; margin-top: 10px;
+        }
+        .start-btn:hover { background: #fff; transform: scale(1.05); }
+    </style>
+</head>
+<body>
+
+<div id="info-trigger" onclick="toggleInfo(true)">i</div>
+
+<div id="modal-overlay" class="info-modal-style" id="infoOverlay">
+    <div class="info-content">
+        <h2>系統更新資訊 (v11.0)</h2>
+        <hr border="0" height="1" bgcolor="#333">
+        <p><strong>[v11.0] 主題選題與難度平滑化</strong><br>
+        - 新增題庫選擇：常用英文、資工專業、教育主題。<br>
+        - 速度優化：大幅調低初期怪物跑速 (0.3+)，隨等級緩步成長。<br>
+        - 介面：新增此資訊面板與主選單重構。</p>
+        
+        <p><strong>[v10.0] 平衡更新</strong><br>
+        - 燃燒瓶時間減半，燒字速度調慢。<br>
+        - 支援 Enter 鍵確認。<br>
+        - 切換武器顯示中文名稱。</p>
+        
+        <p><strong>[v1.0 - v9.0] 核心開發</strong><br>
+        - 基礎鍵位系統與武器升級機制。<br>
+        - 多關卡與無盡模式架構。</p>
+    </div>
+    <button class="close-info" onclick="toggleInfo(false)">關閉資訊</button>
+</div>
+
+<div id="main-menu">
+    <h1 class="game-title">Typing Survival v11</h1>
+    
+    <div class="setup-section">
+        <div class="setup-column">
+            <h3>1. 選擇單字集</h3>
+            <button class="menu-btn active" id="topic-english" onclick="setTopic('english')">
+                常用英文
+                <span>日常對話、高頻單字</span>
+            </button>
+            <button class="menu-btn" id="topic-cs" onclick="setTopic('cs')">
+                資訊工程
+                <span>Binary, Compiler, Algorithm...</span>
+            </button>
+            <button class="menu-btn" id="topic-edu" onclick="setTopic('edu')">
+                教育主題
+                <span>Campus, Homework, Library...</span>
+            </button>
+        </div>
+
+        <div class="setup-column">
+            <h3>2. 選擇階段</h3>
+            <button class="menu-btn active" id="stage-1" onclick="setStage(1)">
+                STAGE 1: Home Row
+                <span>範圍: asdfghjkl;</span>
+            </button>
+            <button class="menu-btn" id="stage-2" onclick="setStage(2)">
+                STAGE 2: Top Row
+                <span>範圍: 基礎 + qwertyuiop</span>
+            </button>
+            <button class="menu-btn" id="stage-3" onclick="setStage(3)">
+                STAGE 3: All Keys
+                <span>範圍: 全鍵盤挑戰</span>
+            </button>
+            <button class="menu-btn" id="stage-endless" onclick="setStage('ENDLESS')" style="color:#ffaaaa">
+                無盡模式
+                <span>不限長度，難度持續提升</span>
+            </button>
+        </div>
+    </div>
+
+    <button class="start-btn" onclick="startGame()">開始戰鬥 (START)</button>
+</div>
+
+<div id="ui-layer">
+    <div class="top-left">
+        <div class="stage-info" id="stageDisplay">STAGE 1</div>
+        <h2 style="margin:0">LV.<span id="levelDisplay">1</span></h2>
+        <div class="hp-bar-bg"><div id="hp-bar" class="hp-bar-fill"></div></div>
+        <div class="xp-bar-bg"><div id="xp-bar" class="xp-bar-fill"></div></div>
+    </div>
+    <div class="bottom-left">
+        <div style="font-size: 24px;">WEAPON: <span id="currentWeaponDisplay" style="color:#f0f">GUN</span></div>
+        <div id="inventoryList" style="display:flex; gap:10px; margin-top:5px;"></div>
+    </div>
+</div>
+
+<div id="modal-overlay" style="display:none;" id="gameModal">
+    <h1 id="modal-title">LEVEL UP!</h1>
+    <p id="modal-desc"></p>
+    <div class="card-container" id="cardContainer"></div>
+    <div style="display:flex; gap:20px;">
+        <button id="menuBtn" style="padding:10px 20px; cursor:pointer;">回選單</button>
+        <button id="restartBtn" style="padding:10px 20px; cursor:pointer;">重試</button>
+    </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // --- 題庫定義 ---
+    const TOPICS = {
+        english: ['about', 'apple', 'bread', 'city', 'dance', 'earth', 'fight', 'ghost', 'heart', 'idea', 'juice', 'king', 'light', 'music', 'night', 'ocean', 'phone', 'quiet', 'river', 'smile', 'table', 'under', 'voice', 'water', 'young', 'zebra', 'focus', 'happy', 'world', 'dream'],
+        cs: ['array', 'binary', 'code', 'debug', 'error', 'function', 'git', 'hash', 'input', 'java', 'kernel', 'logic', 'memory', 'node', 'object', 'pixel', 'query', 'ram', 'stack', 'thread', 'user', 'vram', 'web', 'xml', 'yield', 'zip', 'api', 'byte', 'cache', 'data'],
+        edu: ['book', 'class', 'desk', 'exam', 'final', 'grade', 'hall', 'ink', 'job', 'know', 'learn', 'math', 'note', 'oral', 'pen', 'quiz', 'read', 'study', 'test', 'unit', 'verb', 'write', 'year', 'zone', 'campus', 'coach', 'degree', 'lesson']
+    };
+
+    const STAGE_CHARS = {
+        1: "asdfghjkl;",
+        2: "asdfghjkl;qwertyuiop",
+        3: "asdfghjkl;qwertyuiopzxcvbnm,",
+        'ENDLESS': "abcdefghijklmnopqrstuvwxyz"
+    };
+
+    // --- 遊戲變數 ---
+    let selectedTopic = 'english';
+    let selectedStage = 1;
+    let gameState = 'MENU';
+    let currentInput = "";
+    const WORLD_W = 3000, WORLD_H = 3000;
+    
+    const player = {
+        x: WORLD_W/2, y: WORLD_H/2, hp: 100, maxHp: 100,
+        xp: 0, maxXp: 100, level: 1, speed: 120,
+        inventory: [{id: 'gun', level: 1}], weaponIndex: 0
+    };
+
+    const WEAPON_DB = {
+        'gun': { name: '手槍', desc: '單體高傷' },
+        'bow': { name: '穿透弓', desc: '直線穿透' },
+        'grenade': { name: '虛弱雷', desc: '範圍削字' },
+        'molotov': { name: '燃燒瓶', desc: '火區削字' },
+        'heal': { name: '急救包', desc: '回復 50% HP' }
+    };
+
+    let enemies = [], projectiles = [], fireZones = [], effects = [];
+    const camera = { x: 0, y: 0 };
+
+    // --- 選單控制 ---
+    function setTopic(t) {
+        selectedTopic = t;
+        ['english', 'cs', 'edu'].forEach(id => document.getElementById('topic-'+id).classList.remove('active'));
+        document.getElementById('topic-'+t).classList.add('active');
+    }
+
+    function setStage(s) {
+        selectedStage = s;
+        [1, 2, 3, 'endless'].forEach(id => {
+            const el = document.getElementById('stage-'+id);
+            if(el) el.classList.remove('active');
+        });
+        const activeEl = document.getElementById('stage-' + (s==='ENDLESS'?'endless':s));
+        if(activeEl) activeEl.classList.add('active');
+    }
+
+    function toggleInfo(show) {
+        document.querySelectorAll('#modal-overlay')[0].style.display = show ? 'flex' : 'none';
+    }
+
+    function startGame() {
+        gameState = 'PLAYING';
+        document.getElementById('main-menu').style.display = 'none';
+        resetGame();
+        updateUI();
+    }
+
+    function resetGame() {
+        player.hp = 100; player.xp = 0; player.level = 1; player.maxXp = 100;
+        player.inventory = [{id: 'gun', level: 1}]; player.weaponIndex = 0;
+        enemies = []; projectiles = []; fireZones = []; currentInput = "";
+    }
+
+    // --- 核心邏輯 ---
+    function generateWord() {
+        const pool = TOPICS[selectedTopic];
+        const chars = STAGE_CHARS[selectedStage];
+        
+        // 過濾出符合當前關卡按鍵範圍的單字
+        const available = pool.filter(word => {
+            return word.split('').every(char => chars.includes(char.toLowerCase()));
+        });
+
+        if (available.length === 0) return "error"; // 保險
+        return available[Math.floor(Math.random() * available.length)];
+    }
+
+    function update() {
+        if (gameState !== 'PLAYING') return;
+
+        camera.x = Math.max(0, Math.min(player.x - canvas.width/2, WORLD_W - canvas.width));
+        camera.y = Math.max(0, Math.min(player.y - canvas.height/2, WORLD_H - canvas.height));
+
+        // 敵人生成
+        if (Math.random() < 0.02) {
+            let ex, ey;
+            do { ex=Math.random()*WORLD_W; ey=Math.random()*WORLD_H; } while(Math.hypot(ex-player.x, ey-player.y) < 500);
+            
+            // [v11 速度優化]: 初始速度極低，隨等級穩定上升
+            const baseSpeed = 0.3 + Math.random() * 0.3;
+            const levelScaling = player.level * 0.05; 
+            
+            enemies.push({
+                x: ex, y: ey, word: generateWord(), 
+                speed: baseSpeed + levelScaling, dead: false
+            });
+        }
+
+        enemies.forEach(e => {
+            const dx = player.x - e.x, dy = player.y - e.y, dist = Math.hypot(dx,dy);
+            if(dist > 5) { e.x += (dx/dist)*e.speed; e.y += (dy/dist)*e.speed; }
+            if(dist < 30) player.hp -= 0.1;
+        });
+
+        // 彈射物
+        for(let i=projectiles.length-1; i>=0; i--) {
+            let p = projectiles[i];
+            p.x += p.vx; p.y += p.vy; p.life--;
+            if(p.life <= 0) { projectiles.splice(i,1); continue; }
+
+            for(let e of enemies) {
+                if(Math.hypot(p.x-e.x, p.y-e.y) < 30) {
+                    if(p.weaponId === 'gun' && e.word === p.targetId) e.dead = true;
+                    if(p.weaponId === 'bow') { e.dead = true; addXP(5); }
+                    if(p.weaponId === 'grenade' || p.weaponId === 'molotov') {
+                        const radius = 150;
+                        enemies.forEach(sub => {
+                            if(Math.hypot(sub.x-p.x, sub.y-p.y) < radius) {
+                                sub.word = sub.word.slice(0, -2);
+                                if(sub.word.length <= 0) sub.dead = true;
+                            }
+                        });
+                        if(p.weaponId === 'molotov') fireZones.push({x:p.x, y:p.y, radius:100, life:200});
+                    }
+                    if(p.weaponId !== 'bow') { projectiles.splice(i,1); break; }
+                }
+            }
+        }
+
+        fireZones = fireZones.filter(z => {
+            enemies.forEach(e => {
+                if(Math.hypot(e.x-z.x, e.y-z.y) < z.radius && z.life % 60 === 0) {
+                    e.word = e.word.slice(0,-1);
+                    if(e.word.length <= 0) e.dead = true;
+                }
+            });
+            return --z.life > 0;
+        });
+
+        const killed = enemies.filter(e => e.dead);
+        if(killed.length > 0) {
+            killed.forEach(() => addXP(20));
+            enemies = enemies.filter(e => !e.dead);
+        }
+
+        if(player.hp <= 0) endGame("GAME OVER");
+    }
+
+    function addXP(amt) {
+        player.xp += amt;
+        if(player.xp >= player.maxXp) {
+            player.level++; player.xp = 0; player.maxXp *= 1.2;
+            if(selectedStage !== 'ENDLESS' && player.level >= 10) endGame("STAGE CLEAR");
+            else showUpgrade();
+        }
+        updateUI();
+    }
+
+    function showUpgrade() {
+        gameState = 'PAUSED';
+        const modal = document.querySelectorAll('#modal-overlay')[1];
+        const container = document.getElementById('cardContainer');
+        modal.style.display = 'flex';
+        container.innerHTML = '';
+        
+        const options = ['gun', 'bow', 'grenade', 'molotov', 'heal'].sort(()=>0.5-Math.random()).slice(0,3);
+        options.forEach(key => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.innerHTML = `<h4>${WEAPON_DB[key].name}</h4><p>${WEAPON_DB[key].desc}</p>`;
+            card.onclick = () => {
+                if(key==='heal') player.hp = Math.min(player.maxHp, player.hp+50);
+                else {
+                    const has = player.inventory.find(i=>i.id===key);
+                    if(has) has.level++; else player.inventory.push({id:key, level:1});
+                }
+                modal.style.display = 'none'; gameState = 'PLAYING'; updateUI();
+            };
+            container.appendChild(card);
+        });
+    }
+
+    function endGame(msg) {
+        gameState = 'FINISHED';
+        const modal = document.querySelectorAll('#modal-overlay')[1];
+        modal.style.display = 'flex';
+        document.getElementById('modal-title').innerText = msg;
+        document.getElementById('cardContainer').innerHTML = '';
+    }
+
+    document.getElementById('menuBtn').onclick = () => {
+        document.querySelectorAll('#modal-overlay')[1].style.display = 'none';
+        document.getElementById('main-menu').style.display = 'flex';
+        gameState = 'MENU';
+    };
+    
+    document.getElementById('restartBtn').onclick = () => {
+        document.querySelectorAll('#modal-overlay')[1].style.display = 'none';
+        startGame();
+    };
+
+    // --- 輸入與 UI ---
+    window.addEventListener('keydown', e => {
+        if(gameState !== 'PLAYING') return;
+        if(e.code === 'Enter' || e.code === 'Space') {
+            const target = enemies.find(en => en.word === currentInput);
+            if(target) {
+                const dx = target.x - player.x, dy = target.y - player.y, dist = Math.hypot(dx,dy);
+                const cur = player.inventory[player.weaponIndex];
+                projectiles.push({x:player.x, y:player.y, vx:(dx/dist)*20, vy:(dy/dist)*20, weaponId:cur.id, targetId:target.word, life:100, level:cur.level});
+            }
+            currentInput = "";
+        } else if(e.key === 'Backspace') {
+            currentInput = currentInput.slice(0,-1);
+        } else if(e.key === 'Tab') {
+            e.preventDefault();
+            player.weaponIndex = (player.weaponIndex + 1) % player.inventory.length;
+            const name = WEAPON_DB[player.inventory[player.weaponIndex].id].name;
+            effects.push({text: name, x:player.x, y:player.y-60, life:40, color:'#00d2ff'});
+        } else if(e.key.length === 1) {
+            currentInput += e.key.toLowerCase();
+        }
+        updateUI();
+    });
+
+    function updateUI() {
+        document.getElementById('levelDisplay').innerText = player.level;
+        document.getElementById('stageDisplay').innerText = selectedStage === 'ENDLESS' ? 'ENDLESS' : 'STAGE ' + selectedStage;
+        document.getElementById('hp-bar').style.width = (player.hp/player.maxHp*100) + '%';
+        document.getElementById('xp-bar').style.width = (player.xp/player.maxXp*100) + '%';
+        
+        const curWep = player.inventory[player.weaponIndex];
+        document.getElementById('currentWeaponDisplay').innerText = WEAPON_DB[curWep.id].name + " Lv." + curWep.level;
+    }
+
+    function draw() {
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        if(gameState === 'MENU') { requestAnimationFrame(draw); return; }
+        
+        update();
+        ctx.save();
+        ctx.translate(-camera.x, -camera.y);
+
+        // 背景
+        ctx.strokeStyle = '#222';
+        for(let x=0; x<=WORLD_W; x+=200) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,WORLD_H); ctx.stroke(); }
+        for(let y=0; y<=WORLD_H; y+=200) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(WORLD_W,y); ctx.stroke(); }
+
+        fireZones.forEach(z => {
+            ctx.fillStyle = 'rgba(255,100,0,0.3)';
+            ctx.beginPath(); ctx.arc(z.x, z.y, z.radius, 0, Math.PI*2); ctx.fill();
+        });
+
+        enemies.forEach(e => {
+            ctx.fillStyle = '#ff3333'; ctx.fillRect(e.x-15, e.y-15, 30, 30);
+            ctx.fillStyle = '#fff'; ctx.font = '16px monospace'; ctx.textAlign = 'center';
+            ctx.fillText(e.word, e.x, e.y-25);
+        });
+
+        projectiles.forEach(p => {
+            ctx.fillStyle = '#ffd700'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
+        });
+
+        ctx.fillStyle = '#00d2ff'; ctx.fillRect(player.x-15, player.y-15, 30, 30);
+        ctx.fillStyle = 'white'; ctx.fillText(currentInput, player.x, player.y-40);
+
+        effects.forEach((ef, i) => {
+            ctx.fillStyle = ef.color; ctx.fillText(ef.text, ef.x, ef.y);
+            ef.y--; if(--ef.life <= 0) effects.splice(i,1);
+        });
+
+        ctx.restore();
+        requestAnimationFrame(draw);
+    }
+
+    resize();
+    draw();
+</script>
+</body>
+</html>
