@@ -1,0 +1,23 @@
+export const WORLD_W = 3000;
+export const WORLD_H = 3000;
+
+export const HOME_ROW = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';'];
+
+export const STAGE_CONFIG = {
+    1: { name: "STAGE 1", chars: "asdfghjkl;", minLen: 1, maxLen: 3 },
+    2: { name: "STAGE 2", chars: "asdfghjkl;qwertyuiop", minLen: 2, maxLen: 4 },
+    3: { name: "STAGE 3", chars: "asdfghjkl;qwertyuiopzxcvbnm,", minLen: 3, maxLen: 5 },
+    'ENDLESS': { name: "ENDLESS", chars: "ALL", minLen: 3, maxLen: 99 }
+};
+
+export const WEAPON_DB = {
+    'gun': { name: '手槍', baseDesc: '單體高傷。' },
+    'bow': { name: '穿透弓', baseDesc: '直線穿透。' },
+    'grenade': { name: '虛弱雷', baseDesc: '範圍削字。' },
+    'molotov': { name: '燃燒瓶', baseDesc: '範圍持續削字。' },
+    'heal': { name: '急救包', baseDesc: '回復 50% 生命。' }
+};
+
+export const WORD_LIST = [
+    'about', 'above', 'act', 'add', 'after', 'again', 'age', 'air', 'all', 'also', 'always', 'am', 'an', 'and', 'animal', 'another', 'answer', 'any', 'appear', 'are', 'area', 'as', 'ask', 'at', 'back', 'base', 'be', 'beauty', 'bed', 'been', 'before', 'began', 'begin', 'behind', 'best', 'better', 'big', 'bird', 'black', 'blue', 'boat', 'body', 'book', 'both', 'bottom', 'box', 'boy', 'bring', 'brought', 'build', 'busy', 'but', 'by', 'call', 'came', 'can', 'car', 'care', 'carry', 'cause', 'center', 'change', 'check', 'child', 'city', 'class', 'clear', 'close', 'cold', 'color', 'come', 'common', 'copy', 'could', 'course', 'cover', 'cross', 'cry', 'cut', 'dark', 'day', 'deep', 'did', 'differ', 'do', 'does', 'dog', 'done', 'door', 'down', 'draw', 'dream', 'drive', 'dry', 'during', 'each', 'early', 'earth', 'ease', 'east', 'eat', 'end', 'enough', 'even', 'ever', 'every', 'eye', 'face', 'fact', 'fail', 'fall', 'family', 'far', 'farm', 'fast', 'father', 'feel', 'feet', 'few', 'field', 'figure', 'fill', 'final', 'find', 'fine', 'fire', 'first', 'fish', 'five', 'floor', 'fly', 'follow', 'food', 'foot', 'for', 'force', 'form', 'found', 'four', 'friend', 'from', 'front', 'full', 'game', 'garden', 'gave', 'get', 'girl', 'give', 'go', 'gold', 'good', 'got', 'great', 'green', 'ground', 'group', 'grow', 'had', 'half', 'hand', 'happen', 'happy', 'hard', 'has', 'have', 'he', 'head', 'hear', 'heard', 'heart', 'heat', 'help', 'her', 'here', 'high', 'him', 'his', 'hold', 'home', 'hope', 'horse', 'hot', 'hour', 'house', 'how', 'idea', 'if', 'in', 'inch', 'island', 'is', 'it', 'just', 'keep', 'kind', 'king', 'know', 'land', 'large', 'last', 'late', 'laugh', 'lay', 'lead', 'learn', 'leave', 'left', 'less', 'let', 'letter', 'life', 'light', 'like', 'line', 'list', 'listen', 'little', 'live', 'long', 'look', 'love', 'low', 'made', 'main', 'make', 'man', 'many', 'map', 'mark', 'may', 'me', 'mean', 'men', 'might', 'mile', 'mind', 'miss', 'money', 'moon', 'more', 'most', 'mother', 'move', 'much', 'music', 'must', 'my', 'name', 'near', 'need', 'never', 'new', 'next', 'night', 'no', 'north', 'note', 'notice', 'noun', 'now', 'number', 'object', 'of', 'off', 'often', 'oh', 'oil', 'old', 'on', 'once', 'one', 'only', 'open', 'or', 'order', 'other', 'our', 'out', 'over', 'own', 'page', 'paint', 'paper', 'part', 'pass', 'past', 'people', 'piece', 'place', 'plain', 'plan', 'plane', 'plant', 'play', 'point', 'poor', 'port', 'pose', 'power', 'press', 'pull', 'put', 'question', 'quick', 'rain', 'ran', 'reach', 'read', 'ready', 'real', 'record', 'red', 'rest', 'rich', 'ride', 'right', 'river', 'road', 'rock', 'room', 'round', 'rule', 'run', 'said', 'same', 'saw', 'say', 'school', 'sea', 'second', 'see', 'seem', 'self', 'sentence', 'serve', 'set', 'shape', 'she', 'ship', 'short', 'should', 'show', 'side', 'simple', 'since', 'sing', 'sit', 'six', 'size', 'sleep', 'slow', 'small', 'snow', 'so', 'some', 'song', 'soon', 'sound', 'south', 'space', 'spell', 'spring', 'stand', 'star', 'start', 'state', 'stay', 'step', 'still', 'stop', 'story', 'street', 'strong', 'study', 'such', 'sun', 'sure', 'system', 'table', 'take', 'talk', 'teach', 'tell', 'ten', 'test', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'these', 'they', 'thing', 'think', 'this', 'those', 'though', 'three', 'time', 'tiny', 'to', 'today', 'top', 'told', 'too', 'took', 'town', 'travel', 'tree', 'true', 'try', 'turn', 'two', 'under', 'unit', 'until', 'up', 'us', 'use', 'usual', 'very', 'voice', 'wait', 'walk', 'want', 'warm', 'was', 'watch', 'water', 'way', 'we', 'week', 'well', 'went', 'were', 'what', 'when', 'where', 'which', 'while', 'white', 'who', 'whole', 'why', 'wide', 'will', 'wind', 'winter', 'with', 'wood', 'word', 'work', 'world', 'would', 'write', 'year', 'yes', 'yet', 'you', 'young', 'your'
+];
