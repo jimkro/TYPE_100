@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Typing Survival: v14 Modular</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="main-menu">
+    <h1 class="game-title">Typing Survival v14</h1>
+    <div class="menu-btn-container">
+        <button class="menu-btn" data-stage="1">
+            STAGE 1: 基礎鍵位
+            <span>asdfghjkl; | 移動需看角色周圍提示</span>
+        </button>
+        <button class="menu-btn" data-stage="2">
+            STAGE 2: 上排擴充
+            <span>新增 qwertyuiop | 怪物變快</span>
+        </button>
+        <button class="menu-btn" data-stage="3">
+            STAGE 3: 全鍵盤挑戰
+            <span>新增 zxcvbnm, | 極限反應</span>
+        </button>
+        <button class="menu-btn" data-stage="ENDLESS" style="border-color: #ff3333; color:#ffaaaa;">
+            ENDLESS: 無盡模式
+            <span>English 1k | 動態移動測試</span>
+        </button>
+    </div>
+</div>
+
+<div id="ui-layer">
+    <div class="top-left">
+        <div class="stage-info" id="stageDisplay">STAGE 1</div>
+        <h2 style="margin:0">LV.<span id="levelDisplay">1</span></h2>
+        <div class="hp-bar-bg"><div id="hp-bar" class="hp-bar-fill"></div></div>
+        <div class="xp-bar-bg"><div id="xp-bar" class="xp-bar-fill"></div></div>
+    </div>
+
+    <div class="bottom-left">
+        <div style="font-size: 24px;">WEAPON: <span id="currentWeaponDisplay" style="color:#f0f">GUN</span></div>
+        <div class="weapon-list" id="inventoryList"></div>
+        <div style="margin-top:10px; font-size:12px; color:#aaa;">
+            [TAB] 切換武器 | [SPACE] 確認/移動 | [Back] 刪除
+        </div>
+    </div>
+</div>
+
+<div id="modal-overlay">
+    <h1 id="modal-title">LEVEL UP!</h1>
+    <p id="modal-desc"></p>
+    <div class="card-container" id="cardContainer"></div>
+    
+    <div class="action-btn-group">
+        <button id="menuBtn" class="action-btn btn-secondary">選單 (MENU)</button>
+        <button id="restartBtn" class="action-btn">重試 (RETRY)</button>
+        <button id="nextStageBtn" class="action-btn">下一關 (NEXT)</button>
+    </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script type="module" src="js/main.js"></script>
+
+</body>
+</html>
