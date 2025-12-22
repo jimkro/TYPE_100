@@ -59,9 +59,13 @@ function gameLoop(timestamp) {
 }
 
 function startGame(stageId) {
-    initAudio();
-    switchBGM('normal');
+    // 1. 確保音效引擎啟動
+    initAudio(); 
+    
+    // 2. 明確切換到一般音樂
+    switchBGM('normal'); 
 
+    // ... 其他初始化代碼 ...
     const stage = isNaN(stageId) ? stageId : parseInt(stageId);
     resetGame(stage);
     UI.initGameUI();

@@ -18,7 +18,7 @@ export function playKillSound(weaponId) {
         osc.type = 'square';
         osc.frequency.setValueAtTime(800, now);
         osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
-        gain.gain.setValueAtTime(0.2, now); // 音量調小一點
+        gain.gain.setValueAtTime(0.2, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
         osc.start(now);
         osc.stop(now + 0.1);
@@ -55,8 +55,11 @@ let bgmInterval = null;
 let currentBgmType = null;
 let noteIndex = 0;
 
+// [重要] 外部呼叫此函式來確保音效引擎啟動
 export function initAudio() {
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state === 'suspended') {
+        ctx.resume().catch(e => console.error("Audio resume failed:", e));
+    }
 }
 
 export function stopBGM() {
@@ -68,33 +71,38 @@ export function stopBGM() {
 }
 
 export function switchBGM(type) {
-    if (currentBgmType === type) return; // 已經是這個音樂就不用換
+    // 確保在切換音樂時嘗試啟動音效環境
+    initAudio();
+
+    if (currentBgmType === type) return; 
+    
     stopBGM();
     currentBgmType = type;
     noteIndex = 0;
 
     if (type === 'normal') {
-        // 一般音樂：慢速 (100 BPM)，低沈 Bass
-        // 每 600ms 播放一個音
+        // 一般音樂：慢速 (100 BPM)
+        // 使用 [低, 低, 高, 中] 的 Bass line
         bgmInterval = setInterval(() => playBassLine([110, 110, 146, 130], 0.3), 600);
     } else if (type === 'boss') {
-        // Boss 音樂：快速 (180 BPM)，緊張的增四度 (Tritone)
-        // 每 333ms 播放一個音
+        // Boss 音樂：快速 (180 BPM)
         bgmInterval = setInterval(() => playBassLine([150, 210, 150, 220], 0.15), 333);
     }
 }
 
-// 播放單個 BGM 音符的輔助函式
+// 播放單個 BGM 音符
 function playBassLine(notes, duration) {
+    // 如果 AudioContext 還是 suspended (例如使用者還沒點擊)，就不要播放
     if (ctx.state === 'suspended') return;
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     
-    // 加一點 Filter 讓聲音悶一點，比較像背景音樂
+    // Filter
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = 400; // 低通濾波
+    // [修改 1] 將頻率從 400 提高到 1000，讓聲音更清楚，不要那麼悶
+    filter.frequency.value = 1000; 
 
     osc.connect(filter);
     filter.connect(gain);
@@ -104,12 +112,17 @@ function playBassLine(notes, duration) {
     const freq = notes[noteIndex % notes.length];
     noteIndex++;
 
-    // 波形選擇
-    osc.type = currentBgmType === 'boss' ? 'sawtooth' : 'triangle';
+    // [修改 2] 一般音樂改用 'square' (方波)，比 triangle 更有存在感
+    // Boss 維持 'sawtooth' (鋸齒波) 比較有侵略性
+    osc.type = currentBgmType === 'boss' ? 'sawtooth' : 'square';
+    
     osc.frequency.setValueAtTime(freq, now);
 
-    // 包絡線 (Envelope) - 讓聲音有短促的打擊感
-    gain.gain.setValueAtTime(0.15, now); // 背景音樂音量要小
+    // [修改 3] 音量調整
+    // 方波比三角波大聲，所以音量設為 0.1 (Boss 是 0.15)
+    const vol = currentBgmType === 'boss' ? 0.15 : 0.1;
+    
+    gain.gain.setValueAtTime(vol, now); 
     gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
     osc.start(now);
